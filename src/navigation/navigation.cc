@@ -25,6 +25,7 @@
 #include "amrl_msgs/AckermannCurvatureDriveMsg.h"
 #include "amrl_msgs/Pose2Df.h"
 #include "amrl_msgs/VisualizationMsg.h"
+#include "sensor_msgs/LaserScan.h"
 #include "glog/logging.h"
 #include "ros/ros.h"
 #include "shared/math/math_util.h"
@@ -32,6 +33,9 @@
 #include "shared/ros/ros_helpers.h"
 #include "navigation.h"
 #include "visualization/visualization.h"
+
+#include <iostream>  
+#include <string>     
 
 using Eigen::Vector2f;
 using amrl_msgs::AckermannCurvatureDriveMsg;
@@ -48,11 +52,22 @@ ros::Publisher viz_pub_;
 VisualizationMsg local_viz_msg_;
 VisualizationMsg global_viz_msg_;
 AckermannCurvatureDriveMsg drive_msg_;
+
 // Epsilon value for handling limited numerical precision.
 const float kEpsilon = 1e-5;
 } //namespace
 
+/*
+static void LaserCallback(const sensor_msgs::LaserScan& msg){
+	//float range1 = msg.ranges[1];
+	//ROS_INFO("%f", range1);
+	ROS_INFO("iM hrny");
+}
+*/
 namespace navigation {
+
+
+
 
 Navigation::Navigation(const string& map_file, ros::NodeHandle* n) :
     robot_loc_(0, 0),
@@ -65,31 +80,61 @@ Navigation::Navigation(const string& map_file, ros::NodeHandle* n) :
   drive_pub_ = n->advertise<AckermannCurvatureDriveMsg>(
       "ackermann_curvature_drive", 1);
   viz_pub_ = n->advertise<VisualizationMsg>("visualization", 1);
+
+  //ros::Subscriber laser_sub = n->subscribe("/scan", 1, LaserCallback);
+ 
   local_viz_msg_ = visualization::NewVisualizationMessage(
       "base_link", "navigation_local");
   global_viz_msg_ = visualization::NewVisualizationMessage(
       "map", "navigation_global");
   InitRosHeader("base_link", &drive_msg_.header);
+    
 }
+
+
 
 void Navigation::SetNavGoal(const Vector2f& loc, float angle) {
 }
 
 void Navigation::UpdateLocation(const Eigen::Vector2f& loc, float angle) {
+
 }
 
 void Navigation::UpdateOdometry(const Vector2f& loc,
                                 float angle,
                                 const Vector2f& vel,
                                 float ang_vel) {
+
 }
 
 void Navigation::ObservePointCloud(const vector<Vector2f>& cloud,
                                    double time) {
+
 }
+
+
+
 
 void Navigation::Run() {
-  
-}
+	
+	
+	ros::Rate loop_rate(10);
+
+	while (ros::ok())
+	{
+		float vel = 1.0;
+	  	float curv = 0.0;
+		
+		amrl_msgs:: AckermannCurvatureDriveMsg msg;
+		msg.velocity = vel;
+		msg.curvature = curv;
+		
+		drive_pub_.publish(msg);
+
+		ROS_INFO("%f", vel);
+		ros::spinOnce();
+		loop_rate.sleep();
+	}
 
 }  // namespace navigation
+}

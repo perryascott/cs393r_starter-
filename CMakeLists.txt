@@ -38,6 +38,7 @@ ADD_SUBDIRECTORY(src/shared)
 INCLUDE_DIRECTORIES(src/shared)
 INCLUDE_DIRECTORIES(src)
 
+
 ROSBUILD_ADD_EXECUTABLE(slam
                         src/slam/slam_main.cc
                         src/slam/slam.cc)

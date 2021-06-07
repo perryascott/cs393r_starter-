@@ -30,6 +30,8 @@ namespace ros {
   class NodeHandle;
 }  // namespace ros
 
+//static void LaserCallback(const sensor_msgs::LaserScan& msg);
+
 namespace navigation {
 
 struct PathOption {
@@ -46,6 +48,8 @@ class Navigation {
 
    // Constructor
   explicit Navigation(const std::string& map_file, ros::NodeHandle* n);
+
+
 
   // Used in callback from localization to update position.
   void UpdateLocation(const Eigen::Vector2f& loc, float angle);
