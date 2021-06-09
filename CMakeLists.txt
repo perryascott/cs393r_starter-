@@ -55,5 +55,9 @@ ROSBUILD_ADD_EXECUTABLE(navigation
                         src/navigation/navigation.cc)
 TARGET_LINK_LIBRARIES(navigation shared_library ${libs})
 
+ROSBUILD_ADD_EXECUTABLE(scanFinder
+                        src/scanFinder/scanFinder_main.cc)
+TARGET_LINK_LIBRARIES(scanFinder shared_library ${libs})
+
 ADD_EXECUTABLE(eigen_tutorial
                src/eigen_tutorial.cc)

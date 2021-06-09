@@ -31,7 +31,6 @@
 #include "gflags/gflags.h"
 #include "eigen3/Eigen/Dense"
 #include "eigen3/Eigen/Geometry"
-#include "amrl_msgs/Localization2DMsg.h"
 #include "gflags/gflags.h"
 #include "geometry_msgs/Pose2D.h"
 #include "geometry_msgs/PoseArray.h"
@@ -48,7 +47,6 @@
 
 #include "navigation.h"
 
-using amrl_msgs::Localization2DMsg;
 using math_util::DegToRad;
 using math_util::RadToDeg;
 using navigation::Navigation;
@@ -75,22 +73,27 @@ sensor_msgs::LaserScan last_laser_msg_;
 Navigation* navigation_ = nullptr;
 
 void LaserCallback(const sensor_msgs::LaserScan& msg) {
-  int rangeSize = msg.ranges.size();
-  vector <float> rangeArray[rangeSize] = {msg.ranges};
-  float v1x = rangeArray[0][1080];
-  if (FLAGS_v > 0) {
+    if (FLAGS_v > 0) {
     printf("Laser t=%f, dt=%f\n",
            msg.header.stamp.toSec(),
            GetWallTime() - msg.header.stamp.toSec());
-  }
-  
-  // Location of the laser on the robot. Assumes the laser is forward-facing.
-  const Vector2f kLaserLoc(0.2, 0);
-  ROS_INFO("First Value in vector: %f", v1x);
-  static vector<Vector2f> point_cloud_;
-  // TODO Convert the LaserScan to a point cloud
-  navigation_->ObservePointCloud(point_cloud_, msg.header.stamp.toSec());
-  last_laser_msg_ = msg;
+    }
+    // Location of the laser on the robot. Assumes the laser is forward-facing.
+    const Vector2f kLaserLoc(0.2, 0);
+
+    static vector<Vector2f> point_cloud_;
+        
+    int ctr = 0;
+    for(const float &p : msg.ranges) {
+        Vector2f pt(p*cos(msg.angle_min + ctr * msg.angle_increment), p*sin(msg.angle_min + ctr * msg.angle_increment));
+        pt += kLaserLoc;
+        point_cloud_.push_back(pt);
+        ctr++;
+    }
+    // TODO Convert the LaserScan to a point cloud
+    navigation_->ObservePointCloud(point_cloud_, msg.header.stamp.toSec());
+    last_laser_msg_ = msg;
+    point_cloud_.clear();
 }
 
 void OdometryCallback(const nav_msgs::Odometry& msg) {
@@ -109,7 +112,6 @@ void GoToCallback(const geometry_msgs::PoseStamped& msg) {
   const float angle =
       2.0 * atan2(msg.pose.orientation.z, msg.pose.orientation.w);
   printf("Goal: (%f,%f) %f\u00b0\n", loc.x(), loc.y(), angle);
-  //ROS_INFO("new goal at x : %f",msg.pose.position.x);
   navigation_->SetNavGoal(loc, angle);
 }
 
@@ -122,15 +124,11 @@ void SignalHandler(int) {
   run_ = false;
 }
 
-void LocalizationCallback(const amrl_msgs::Localization2DMsg msg) {
+void LocalizationCallback(const geometry_msgs::Pose2D& msg) {
   if (FLAGS_v > 0) {
     printf("Localization t=%f\n", GetWallTime());
   }
-  navigation_->UpdateLocation(Vector2f(msg.pose.x, msg.pose.y), msg.pose.theta);
-}
-
-float mag(const Vector2f& vect){
-    return sqrt(pow(vect.x(),2) + pow(vect.y(),2));
+  navigation_->UpdateLocation(Vector2f(msg.x, msg.y), msg.theta);
 }
 
 int main(int argc, char** argv) {
@@ -146,10 +144,9 @@ int main(int argc, char** argv) {
   ros::Subscriber localization_sub =
       n.subscribe(FLAGS_loc_topic, 1, &LocalizationCallback);
   ros::Subscriber laser_sub =
-      n.subscribe("/scan", 1, &LaserCallback);
+      n.subscribe(FLAGS_laser_topic, 1, &LaserCallback);
   ros::Subscriber goto_sub =
       n.subscribe("/move_base_simple/goal", 1, &GoToCallback);
-
 
   RateLoop loop(20.0);
   while (run_ && ros::ok()) {

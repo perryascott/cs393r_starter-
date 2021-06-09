@@ -26,6 +26,7 @@
 #include "amrl_msgs/Pose2Df.h"
 #include "amrl_msgs/VisualizationMsg.h"
 #include "sensor_msgs/LaserScan.h"
+#include "sensor_msgs/Range.h"
 #include "glog/logging.h"
 #include "ros/ros.h"
 #include "shared/math/math_util.h"
@@ -33,6 +34,7 @@
 #include "shared/ros/ros_helpers.h"
 #include "navigation.h"
 #include "visualization/visualization.h"
+
 
 #include <iostream>  
 #include <string>     
@@ -42,6 +44,11 @@ using amrl_msgs::AckermannCurvatureDriveMsg;
 using amrl_msgs::VisualizationMsg;
 using std::string;
 using std::vector;
+using std::cout;
+using std::endl;
+using visualization::DrawCross;
+using visualization::DrawPoint;
+using visualization::ClearVisualizationMsg;
 
 using namespace math_util;
 using namespace ros_helpers;
@@ -57,13 +64,7 @@ AckermannCurvatureDriveMsg drive_msg_;
 const float kEpsilon = 1e-5;
 } //namespace
 
-/*
-static void LaserCallback(const sensor_msgs::LaserScan& msg){
-	//float range1 = msg.ranges[1];
-	//ROS_INFO("%f", range1);
-	ROS_INFO("iM hrny");
-}
-*/
+
 namespace navigation {
 
 
@@ -81,8 +82,6 @@ Navigation::Navigation(const string& map_file, ros::NodeHandle* n) :
       "ackermann_curvature_drive", 1);
   viz_pub_ = n->advertise<VisualizationMsg>("visualization", 1);
 
-  //ros::Subscriber laser_sub = n->subscribe("/scan", 1, LaserCallback);
- 
   local_viz_msg_ = visualization::NewVisualizationMessage(
       "base_link", "navigation_local");
   global_viz_msg_ = visualization::NewVisualizationMessage(
@@ -94,6 +93,8 @@ Navigation::Navigation(const string& map_file, ros::NodeHandle* n) :
 
 
 void Navigation::SetNavGoal(const Vector2f& loc, float angle) {
+    nav_goal_loc_ = loc;
+    nav_goal_angle_ = angle;
 }
 
 void Navigation::UpdateLocation(const Eigen::Vector2f& loc, float angle) {
@@ -104,37 +105,72 @@ void Navigation::UpdateOdometry(const Vector2f& loc,
                                 float angle,
                                 const Vector2f& vel,
                                 float ang_vel) {
-
+    robot_loc_ = loc;
+    robot_angle_ = angle;
+    robot_vel_ = vel;
+    robot_omega_ = ang_vel;
 }
 
+int cloudSize = 0;
 void Navigation::ObservePointCloud(const vector<Vector2f>& cloud,
                                    double time) {
 
+    cloudSize = cloud.size();
+    for (int i = 0; i < cloudSize; ++i) {
+        DrawPoint(cloud.at(i), 0x77fc03, local_viz_msg_);
+        viz_pub_.publish(local_viz_msg_);
+    }
+}
+float mag(const Vector2f& vect){
+    return sqrt(pow(vect.x(),2) + pow(vect.y(),2));
 }
 
+/*
+    //vehicle parameters
+    float l = 0; //vehicle length
+    float w = 0; //vehicle width
+    float b = 0; //vehicle wheel base length
+    float d = 0; //track width
+    float m = 0; //obstacle safety margin
+*/ /*
+    //time optimal control vars
+    float maxa = 4; //max acceleration m/s^2
+    float maxd = 4; //max deceleration m/s^2
+    float vmax = 1; //max speed m/s
 
+    float goalDistance = 5; //total distance to travel in x direction
+*/ 
+float deltaT = .05; //time step between calls of Run()
+
+float minStopDist = 0; 
+//float startOdomMag = mag(navigation_.robot_loc_);
+float currentOdomMag = 0;
 
 
 void Navigation::Run() {
-	
-	
-	ros::Rate loop_rate(10);
+    drive_msg_.velocity = 1.0;
+    drive_msg_.curvature = 0.0;
 
-	while (ros::ok())
-	{
-		float vel = 1.0;
-	  	float curv = 0.0;
-		
-		amrl_msgs:: AckermannCurvatureDriveMsg msg;
-		msg.velocity = vel;
-		msg.curvature = curv;
-		
-		drive_pub_.publish(msg);
+    //calculate current odometry and velocity magnitude
+    currentOdomMag = mag(robot_loc_);
+    velMag = mag(robot_vel_);
+    minStopDist = 0; pow(velMag,2)/(2*maxd);
+    
+    //first make sure that enough distance to decelerate
+    //after next time step
+    distLeft = endGoal - (currentOdomMag + deltaT*velMag);
+    if(distLeft >= minStopDist){
+	drive_msg_.velocity = 0;
+	ROS_INFO("ooo he shtopping");
+    }
+*/
 
-		ROS_INFO("%f", vel);
-		ros::spinOnce();
-		loop_rate.sleep();
-	}
 
+    drive_msg_.velocity = 1.0;
+    drive_msg_.curvature = 0.0;
+    drive_pub_.publish(drive_msg_);
+    ROS_INFO("x-Position: %f",robot_loc_.x());
+    ROS_INFO("y-Position: %f",robot_loc_.y());
+    ROS_INFO("magnitude of pos: %f", mag(robot_loc_));
 }  // namespace navigation
 }
