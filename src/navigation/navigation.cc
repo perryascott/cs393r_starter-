@@ -99,6 +99,7 @@ void Navigation::SetNavGoal(const Vector2f& loc, float angle) {
 
 void Navigation::UpdateLocation(const Eigen::Vector2f& loc, float angle) {
 
+
 }
 
 void Navigation::UpdateOdometry(const Vector2f& loc,
@@ -132,45 +133,85 @@ float mag(const Vector2f& vect){
     float b = 0; //vehicle wheel base length
     float d = 0; //track width
     float m = 0; //obstacle safety margin
-*/ /*
+*/ 
     //time optimal control vars
-    float maxa = 4; //max acceleration m/s^2
+    float maxa = 12; //max acceleration m/s^2
     float maxd = 4; //max deceleration m/s^2
     float vmax = 1; //max speed m/s
 
-    float goalDistance = 5; //total distance to travel in x direction
-*/ 
+
+
 float deltaT = .05; //time step between calls of Run()
-
+float goalDistance = 5; //total distance to travel in x direction
 float minStopDist = 0; 
-//float startOdomMag = mag(navigation_.robot_loc_);
-float currentOdomMag = 0;
-
+int runCount = 0;
+float startOdomY = 0;
+float startOdomX = 0;
+float currentOdomY = 0;
+float currentOdomX = 0;
+float velMag = 0;
+float absDiffX = 0;
+float absDiffY = 0;
+float magDiff = 0;
 
 void Navigation::Run() {
-    drive_msg_.velocity = 1.0;
-    drive_msg_.curvature = 0.0;
 
-    //calculate current odometry and velocity magnitude
-    currentOdomMag = mag(robot_loc_);
-    velMag = mag(robot_vel_);
-    minStopDist = 0; pow(velMag,2)/(2*maxd);
-    
-    //first make sure that enough distance to decelerate
-    //after next time step
-    distLeft = endGoal - (currentOdomMag + deltaT*velMag);
-    if(distLeft >= minStopDist){
-	drive_msg_.velocity = 0;
-	ROS_INFO("ooo he shtopping");
+    if (runCount < 8){
+	startOdomY = robot_loc_.y();
+	startOdomX = robot_loc_.x();
+	runCount++;
+	
+	ROS_INFO("initializing starting odometry");
     }
-*/
+
+    
+    //calculate distance traveled and velocity magnitude
+    currentOdomY = robot_loc_.y();
+    currentOdomX = robot_loc_.x();
+    absDiffX = abs(startOdomX - currentOdomX);
+    absDiffY = abs(startOdomY - currentOdomY);
+    magDiff = sqrt(pow(absDiffX,2)+pow(absDiffY,2));
+    velMag = mag(robot_vel_);
 
 
-    drive_msg_.velocity = 1.0;
-    drive_msg_.curvature = 0.0;
+    
+
+
+
+    //if at max speed
+    if(velMag >= vmax){
+	//first make sure enough room to decelerate, if not then stop.
+        minStopDist = pow(velMag,2)/(2*maxd);
+    	if((goalDistance-magDiff - deltaT*velMag) <= minStopDist){
+		drive_msg_.velocity = 0;
+		ROS_INFO("slowing down");
+    	}
+    	//otherwise remain at top speed
+    	else{
+		drive_msg_.velocity = vmax;
+		ROS_INFO("remain at top speed");
+    	}
+    } else {
+    //if not at max speed
+	//assume accerating and ask if at next time step there is sufficient room to stop. If not then stop
+	minStopDist = pow((velMag+deltaT*maxa),2)/(2*maxd);
+    	if((goalDistance-magDiff - deltaT*velMag-1/2*maxa*pow(deltaT,2)) <= minStopDist){
+		drive_msg_.velocity = 0;
+		ROS_INFO("slowing down");
+    	}
+
+    	//otherwise accelerate
+    	else{
+	drive_msg_.velocity = vmax;
+	ROS_INFO("speeding up");
+	}
+    }
+
+	ROS_INFO("magDiff: %f",magDiff);
+	ROS_INFO("velocity: %f",mag(robot_vel_));
+	ROS_INFO("--------------");
     drive_pub_.publish(drive_msg_);
-    ROS_INFO("x-Position: %f",robot_loc_.x());
-    ROS_INFO("y-Position: %f",robot_loc_.y());
-    ROS_INFO("magnitude of pos: %f", mag(robot_loc_));
+
+
 }  // namespace navigation
 }

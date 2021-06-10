@@ -77,7 +77,7 @@ Navigation* navigation_ = nullptr;
 void LaserCallback(const sensor_msgs::LaserScan& msg) {
   int rangeSize = msg.ranges.size();
   vector <float> rangeArray[rangeSize] = {msg.ranges};
-  float v1x = rangeArray[0][1080];
+  //float v1x = rangeArray[0][1080];
   if (FLAGS_v > 0) {
     printf("Laser t=%f, dt=%f\n",
            msg.header.stamp.toSec(),
@@ -86,7 +86,7 @@ void LaserCallback(const sensor_msgs::LaserScan& msg) {
   
   // Location of the laser on the robot. Assumes the laser is forward-facing.
   const Vector2f kLaserLoc(0.2, 0);
-  ROS_INFO("First Value in vector: %f", v1x);
+  //ROS_INFO("First Value in vector: %f", v1x);
   static vector<Vector2f> point_cloud_;
   // TODO Convert the LaserScan to a point cloud
   navigation_->ObservePointCloud(point_cloud_, msg.header.stamp.toSec());
