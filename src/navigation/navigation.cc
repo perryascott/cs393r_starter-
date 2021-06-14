@@ -114,13 +114,14 @@ void Navigation::UpdateOdometry(const Vector2f& loc,
 
 int cloudSize = 0;
 void Navigation::ObservePointCloud(const vector<Vector2f>& cloud,
-                                   double time) {
-
+                                   double time){
+	points = cloud;
+/*
     cloudSize = cloud.size();
     for (int i = 0; i < cloudSize; ++i) {
         DrawPoint(cloud.at(i), 0x77fc03, local_viz_msg_);
         viz_pub_.publish(local_viz_msg_);
-    }
+    }*/
 }
 float mag(const Vector2f& vect){
     return sqrt(pow(vect.x(),2) + pow(vect.y(),2));
@@ -134,11 +135,13 @@ float mag(const Vector2f& vect){
     float d = 0; //track width
     float m = 0; //obstacle safety margin
 */ 
-    //time optimal control vars
-    float maxa = 12; //max acceleration m/s^2
-    float maxd = 4; //max deceleration m/s^2
-    float vmax = 1; //max speed m/s
+ //time optimal control vars
+float maxa = 12; //max acceleration m/s^2
+float maxd = 4; //max deceleration m/s^2
+float vmax = 1; //max speed m/s
 
+//point cloud stuff
+public vector<Vector2f> points;
 
 
 float deltaT = .05; //time step between calls of Run()
@@ -153,14 +156,24 @@ float velMag = 0;
 float absDiffX = 0;
 float absDiffY = 0;
 float magDiff = 0;
+float s = 0;
+float phi = 0;
+float r = 0;
 
 void Navigation::Run() {
-
+    drive_msg_.curvature = 0.3;
+	
+	/*
+	DrawPoint(cloud.at(i), 0x77fc03, local_viz_msg_);
+	//calculate center of rotation to draw arc
+    const Vector2f center(robot_loc_, 0);
+	*/
+	
     if (runCount < 8){
 	startOdomY = robot_loc_.y();
 	startOdomX = robot_loc_.x();
 	runCount++;
-	
+
 	ROS_INFO("initializing starting odometry");
     }
 
@@ -172,46 +185,60 @@ void Navigation::Run() {
     absDiffY = abs(startOdomY - currentOdomY);
     magDiff = sqrt(pow(absDiffX,2)+pow(absDiffY,2));
     velMag = mag(robot_vel_);
+	r = 1/drive_msg_.curvature;
 
-
-    
-
-
-
-    //if at max speed
-    if(velMag >= vmax){
-	//first make sure enough room to decelerate, if not then stop.
-        minStopDist = pow(velMag,2)/(2*maxd);
-    	if((goalDistance-magDiff - deltaT*velMag) <= minStopDist){
-		drive_msg_.velocity = 0;
-		ROS_INFO("slowing down");
-    	}
-    	//otherwise remain at top speed
-    	else{
-		drive_msg_.velocity = vmax;
-		ROS_INFO("remain at top speed");
-    	}
-    } else {
-    //if not at max speed
-	//assume accerating and ask if at next time step there is sufficient room to stop. If not then stop
-	minStopDist = pow((velMag+deltaT*maxa),2)/(2*maxd);
-    	if((goalDistance-magDiff - deltaT*velMag-1/2*maxa*pow(deltaT,2)) <= minStopDist){
-		drive_msg_.velocity = 0;
-		ROS_INFO("slowing down");
-    	}
-
-    	//otherwise accelerate
-    	else{
-	drive_msg_.velocity = vmax;
-	ROS_INFO("speeding up");
+	//if operating on a curve, determing arc length moved along curve
+	if(drive_msg_. curvature == 0){
+		phi = 0;
+		s = magDiff;
 	}
-    }
+	//if driving straight, arc length is simply distance traveled
+	else{
+		phi = 2*asin(magDiff/(2*r));
+    	s = phi*r;
 
-	ROS_INFO("magDiff: %f",magDiff);
-	ROS_INFO("velocity: %f",mag(robot_vel_));
-	ROS_INFO("--------------");
+	}
+
+	//if at max speed
+	if(velMag >= vmax){
+		//first make sure enough room to decelerate, if not then stop.
+		minStopDist = pow(velMag,2)/(2*maxd);
+		if((goalDistance - s - deltaT*velMag) <= minStopDist){
+			drive_msg_.velocity = 0;
+			ROS_INFO("slowing down");
+		}
+		//otherwise remain at top speed
+		else{
+			drive_msg_.velocity = vmax;
+			ROS_INFO("remain at top speed");
+		}
+	} 
+	else {
+		//if not at max speed
+		//assume accerating and ask if at next time step there is sufficient room to stop. If not then stop
+		minStopDist = pow((velMag+deltaT*maxa),2)/(2*maxd);
+		if((goalDistance- s - deltaT*velMag-1/2*maxa*pow(deltaT,2)) <= minStopDist){
+			drive_msg_.velocity = 0;
+			ROS_INFO("slowing down");
+		}
+
+		//otherwise accelerate
+		else {
+			drive_msg_.velocity = vmax;
+			ROS_INFO("speeding up");
+		}
+	}
+     
+   
+
+    ROS_INFO("Distance Traveled: %f",s);
+    ROS_INFO("Velocity: %f",mag(robot_vel_));
+	ROS_INFO("Phi: %f",phi);
+	ROS_INFO("bot angle : %f",robot_angle_);
+    ROS_INFO("--------------");
     drive_pub_.publish(drive_msg_);
 
 
 }  // namespace navigation
+
 }
