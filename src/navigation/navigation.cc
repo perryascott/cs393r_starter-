@@ -48,6 +48,7 @@ using std::cout;
 using std::endl;
 using visualization::DrawCross;
 using visualization::DrawPoint;
+using visualization::DrawArc;
 using visualization::ClearVisualizationMsg;
 
 using namespace math_util;
@@ -96,9 +97,11 @@ void Navigation::SetNavGoal(const Vector2f& loc, float angle) {
     nav_goal_loc_ = loc;
     nav_goal_angle_ = angle;
 }
-
+float actualAngle = 0;
+static Vector2f actualLocation(0,0);
 void Navigation::UpdateLocation(const Eigen::Vector2f& loc, float angle) {
-
+	actualLocation = loc;
+	actualAngle = angle;
 
 }
 
@@ -111,6 +114,9 @@ void Navigation::UpdateOdometry(const Vector2f& loc,
     robot_vel_ = vel;
     robot_omega_ = ang_vel;
 }
+
+//point cloud stuff
+static vector<Vector2f> points;
 
 int cloudSize = 0;
 void Navigation::ObservePointCloud(const vector<Vector2f>& cloud,
@@ -140,12 +146,11 @@ float maxa = 12; //max acceleration m/s^2
 float maxd = 4; //max deceleration m/s^2
 float vmax = 1; //max speed m/s
 
-//point cloud stuff
-public vector<Vector2f> points;
+
 
 
 float deltaT = .05; //time step between calls of Run()
-float goalDistance = 5; //total distance to travel in x direction
+float goalDistance = 50; //total distance to travel in x direction
 float minStopDist = 0; 
 int runCount = 0;
 float startOdomY = 0;
@@ -161,22 +166,21 @@ float phi = 0;
 float r = 0;
 
 void Navigation::Run() {
-    drive_msg_.curvature = 0.3;
+	ClearVisualizationMsg(local_viz_msg_);
+    viz_pub_.publish(local_viz_msg_);
 	
-	/*
-	DrawPoint(cloud.at(i), 0x77fc03, local_viz_msg_);
-	//calculate center of rotation to draw arc
-    const Vector2f center(robot_loc_, 0);
-	*/
+    drive_msg_.curvature = 0.3;
+	r = 1/drive_msg_.curvature;
+	
+
 	
     if (runCount < 8){
 	startOdomY = robot_loc_.y();
 	startOdomX = robot_loc_.x();
 	runCount++;
-
+    
 	ROS_INFO("initializing starting odometry");
-    }
-
+    } 
     
     //calculate distance traveled and velocity magnitude
     currentOdomY = robot_loc_.y();
@@ -185,14 +189,14 @@ void Navigation::Run() {
     absDiffY = abs(startOdomY - currentOdomY);
     magDiff = sqrt(pow(absDiffX,2)+pow(absDiffY,2));
     velMag = mag(robot_vel_);
-	r = 1/drive_msg_.curvature;
 
-	//if operating on a curve, determing arc length moved along curve
+	//if driving straight, arc length is simply distance traveled
+	
 	if(drive_msg_. curvature == 0){
 		phi = 0;
 		s = magDiff;
 	}
-	//if driving straight, arc length is simply distance traveled
+	//if operating on a curve, determing arc length moved along curve
 	else{
 		phi = 2*asin(magDiff/(2*r));
     	s = phi*r;
@@ -237,7 +241,16 @@ void Navigation::Run() {
 	ROS_INFO("bot angle : %f",robot_angle_);
     ROS_INFO("--------------");
     drive_pub_.publish(drive_msg_);
-
+	
+	//DrawPoint(cloud.at(i), 0x77fc03, local_viz_msg_);
+	//calculate center of rotation to draw arc
+	
+    const Vector2f center(actualLocation.x() - r*sin(actualAngle),actualLocation.y() + r*cos(actualAngle));
+	float end_angle = 6.3;
+	float start_angle = 0;
+	DrawArc(center, r ,start_angle,end_angle,0x77fc03,local_viz_msg_) ;
+	DrawCross(actualLocation, 1, 0x0000ff,local_viz_msg_);
+	viz_pub_.publish(local_viz_msg_);
 
 }  // namespace navigation
 
