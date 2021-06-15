@@ -48,6 +48,7 @@ using std::cout;
 using std::endl;
 using visualization::DrawCross;
 using visualization::DrawPoint;
+using visualization::DrawLine;
 using visualization::DrawArc;
 using visualization::ClearVisualizationMsg;
 
@@ -133,6 +134,13 @@ float mag(const Vector2f& vect){
     return sqrt(pow(vect.x(),2) + pow(vect.y(),2));
 }
 
+float getAngle(const Vector2f& cent, const Vector2f& start,const Vector2f& end){
+	const Vector2f vect(start.x()-end.x(),start.y()-end.y());
+	const Vector2f vectR(start.x()-cent.x(),start.y()-cent.y());
+	float startEndMag = mag(vect);
+	float rMag = mag(vectR);
+	return 2*asin(startEndMag/(2*rMag));
+}
 /*
     //vehicle parameters
     float l = 0; //vehicle length
@@ -150,7 +158,7 @@ float vmax = 1; //max speed m/s
 
 
 float deltaT = .05; //time step between calls of Run()
-float goalDistance = 50; //total distance to travel in x direction
+float goalDistance = 10; //total distance to travel in x direction
 float minStopDist = 0; 
 int runCount = 0;
 float startOdomY = 0;
@@ -164,13 +172,16 @@ float magDiff = 0;
 float s = 0;
 float phi = 0;
 float r = 0;
+const Vector2f zeroLocation(0,0);
+
+float maxMagDiff = -1;
 
 void Navigation::Run() {
 	ClearVisualizationMsg(local_viz_msg_);
     viz_pub_.publish(local_viz_msg_);
 	
-    drive_msg_.curvature = 0.3;
-	r = 1/drive_msg_.curvature;
+    drive_msg_.curvature = .4;
+	r = abs(1/drive_msg_.curvature);
 	
 
 	
@@ -178,7 +189,8 @@ void Navigation::Run() {
 	startOdomY = robot_loc_.y();
 	startOdomX = robot_loc_.x();
 	runCount++;
-    
+    const Vector2f startLocation(actualLocation.x(),actualLocation.y());
+
 	ROS_INFO("initializing starting odometry");
     } 
     
@@ -197,10 +209,16 @@ void Navigation::Run() {
 		s = magDiff;
 	}
 	//if operating on a curve, determing arc length moved along curve
-	else{
-		phi = 2*asin(magDiff/(2*r));
-    	s = phi*r;
-
+	else{			
+			if(magDiff >= maxMagDiff){
+				maxMagDiff = magDiff;
+				phi = 2*asin(magDiff/(2*r));
+				s = abs((phi)*r);
+			} 
+			else{
+				phi = M_PI - 2*asin(magDiff/(2*r));
+				s = abs((phi+M_PI)*r);
+			}
 	}
 
 	//if at max speed
@@ -238,19 +256,38 @@ void Navigation::Run() {
     ROS_INFO("Distance Traveled: %f",s);
     ROS_INFO("Velocity: %f",mag(robot_vel_));
 	ROS_INFO("Phi: %f",phi);
-	ROS_INFO("bot angle : %f",robot_angle_);
+
     ROS_INFO("--------------");
     drive_pub_.publish(drive_msg_);
 	
 	//DrawPoint(cloud.at(i), 0x77fc03, local_viz_msg_);
 	//calculate center of rotation to draw arc
+	float distLeft = goalDistance - s;
+	float rSign = 1;
+	if(drive_msg_.curvature !=0){
+		if(drive_msg_.curvature <0 ){ rSign = -1;}
+		const Vector2f center(actualLocation.x() - rSign*r*sin(actualAngle),actualLocation.y() + rSign*r*cos(actualAngle));
+		float start_angle = atan2(actualLocation.y()-center.y(),actualLocation.x()-center.x());
+		float angle_diff = (distLeft)/r;
+		if(drive_msg_.curvature <0){
+			DrawArc(center, r ,start_angle+rSign*angle_diff,start_angle,0x77fc03,local_viz_msg_) ;
+		}
+		else{
+			DrawArc(center, r ,start_angle,start_angle+rSign*angle_diff,0x77fc03,local_viz_msg_) ;
+		}
+	}
+	else{
+		
+		const Vector2f end(actualLocation.x() + distLeft*cos(actualAngle),actualLocation.y() + distLeft*sin(actualAngle));
+		DrawLine(actualLocation, end, 0x0000ff,local_viz_msg_);
+	}
 	
-    const Vector2f center(actualLocation.x() - r*sin(actualAngle),actualLocation.y() + r*cos(actualAngle));
-	float end_angle = 6.3;
-	float start_angle = 0;
-	DrawArc(center, r ,start_angle,end_angle,0x77fc03,local_viz_msg_) ;
-	DrawCross(actualLocation, 1, 0x0000ff,local_viz_msg_);
+	
+	DrawCross(actualLocation, .6, 0x0000ff,local_viz_msg_);
+	const Vector2f car1(actualLocation.x() + .8*cos(actualAngle), actualLocation.y() + .8*sin(actualAngle));
+	DrawCross(car1, .3, 0x0000ff,local_viz_msg_);	
 	viz_pub_.publish(local_viz_msg_);
+
 
 }  // namespace navigation
 

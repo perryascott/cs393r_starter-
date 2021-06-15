@@ -136,17 +136,23 @@ void SignalHandler(int) {
   printf("Exiting.\n");
   run_ = false;
 }
-
+/*
 void LocalizationCallback(const amrl_msgs::Localization2DMsg msg) {
   if (FLAGS_v > 0) {
     printf("Localization t=%f\n", GetWallTime());
   }
+  ROS_INFO("cummm");
   navigation_->UpdateLocation(Vector2f(msg.pose.x, msg.pose.y), msg.pose.theta);
+}*/
+
+void LocalizationCallback(const geometry_msgs::PoseStamped& msg) {
+  if (FLAGS_v > 0) {
+    printf("Localization t=%f\n", GetWallTime());
+  }
+  float angle = 2*atan2(msg.pose.orientation.z,msg.pose.orientation.w);
+  navigation_->UpdateLocation(Vector2f(msg.pose.position.x, msg.pose.position.y), angle);
 }
 
-float mag(const Vector2f& vect){
-    return sqrt(pow(vect.x(),2) + pow(vect.y(),2));
-}
 
 int main(int argc, char** argv) {
   google::ParseCommandLineFlags(&argc, &argv, false);
@@ -158,12 +164,14 @@ int main(int argc, char** argv) {
 
   ros::Subscriber velocity_sub =
       n.subscribe(FLAGS_odom_topic, 1, &OdometryCallback);
-  ros::Subscriber localization_sub =
-      n.subscribe(FLAGS_loc_topic, 1, &LocalizationCallback);
+  /*ros::Subscriber localization_sub =
+      n.subscribe(FLAGS_loc_topic, 1, &LocalizationCallback);*/
   ros::Subscriber laser_sub =
       n.subscribe("/scan", 1, &LaserCallback);
   ros::Subscriber goto_sub =
-      n.subscribe("/move_base_simple/goal", 1, &GoToCallback);
+      n.subscribe("/move_base_simple/goal", 1, &GoToCallback); 
+  ros::Subscriber localization_sub =
+      n.subscribe("/simulator_true_pose", 1, &LocalizationCallback);  
 
 
   RateLoop loop(20.0);
