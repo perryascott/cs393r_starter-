@@ -275,6 +275,7 @@ void Navigation::Run() {
 		else{
 			DrawArc(center, r ,start_angle,start_angle+rSign*angle_diff,0x77fc03,local_viz_msg_) ;
 		}
+		
 	}
 	else{
 		
