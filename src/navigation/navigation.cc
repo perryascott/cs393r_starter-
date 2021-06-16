@@ -134,28 +134,27 @@ float mag(const Vector2f& vect){
     return sqrt(pow(vect.x(),2) + pow(vect.y(),2));
 }
 
-float getAngle(const Vector2f& cent, const Vector2f& start,const Vector2f& end){
-	const Vector2f vect(start.x()-end.x(),start.y()-end.y());
-	const Vector2f vectR(start.x()-cent.x(),start.y()-cent.y());
-	float startEndMag = mag(vect);
-	float rMag = mag(vectR);
-	return 2*asin(startEndMag/(2*rMag));
+float dist(const Vector2f& vect1, const Vector2f& vect2){
+	const Vector2f vectDist(vect1.x()-vect2.x(),vect1.y()-vect2.y());
+	return mag(vectDist);
 }
-/*
-    //vehicle parameters
-    float l = 0; //vehicle length
-    float w = 0; //vehicle width
-    float b = 0; //vehicle wheel base length
-    float d = 0; //track width
-    float m = 0; //obstacle safety margin
-*/ 
+
+
+
+//vehicle parameters
+float l = 0.7; //vehicle length
+float w = 0.4; //vehicle width
+//float b = 0; //vehicle wheel base length
+//float d = 0; //track width
+//float m = 0.05; //obstacle safety margin
+
+
+
+
  //time optimal control vars
 float maxa = 12; //max acceleration m/s^2
 float maxd = 4; //max deceleration m/s^2
-float vmax = 1; //max speed m/s
-
-
-
+float vmax = .05; //max speed m/s
 
 float deltaT = .05; //time step between calls of Run()
 float goalDistance = 10; //total distance to travel in x direction
@@ -176,11 +175,71 @@ const Vector2f zeroLocation(0,0);
 
 float maxMagDiff = -1;
 
+float isosGetAngle(const Vector2f& start, const Vector2f& end,float obstR){
+	const Vector2f vect(start.x()-end.x(),start.y()-end.y());
+	float startEndMag = mag(vect);
+	return 2*asin(startEndMag/(2*obstR));
+}
+
+float getScanAngle(const Vector2f& obst, float baseLinkr, float pointRad){
+	const Vector2f origin(0,pointRad-baseLinkr);
+    if(obst.x() <0){
+		return 2*M_PI - isosGetAngle(origin,obst,pointRad);
+	}
+	else{
+		return isosGetAngle(origin,obst,pointRad);
+	}
+}
+
+void plotLinkArc(float curve, float angle_diff,int color, float blOffset){
+	
+	float rad=abs(1/curve);
+	float rSign = 1;
+	if (curve<0){rSign = -1;}
+	const Vector2f center(actualLocation.x() - rSign*rad*sin(actualAngle),actualLocation.y() + rSign*rad*cos(actualAngle));
+	float start_angle = atan2(actualLocation.y()-center.y(),actualLocation.x()-center.x());
+	if(curve<0){
+		DrawArc(center, r + blOffset,start_angle+rSign*angle_diff,start_angle,color,local_viz_msg_) ;
+	}
+	else{
+		DrawArc(center, r +blOffset,start_angle,start_angle+rSign*angle_diff,color,local_viz_msg_) ;
+	}    
+}
+
+void plotLinkArcOrigin(float curve, float angle_diff,int color, float blOffset){
+	
+	float rad=abs(1/curve);
+	float rSign = 1;
+	if (curve<0){rSign = -1;}
+	const Vector2f center( 0,  rSign*rad);
+	float start_angle = atan2(-center.y(),-center.x());
+	if(curve<0){
+		DrawArc(center, r + blOffset,start_angle+rSign*angle_diff,start_angle,color,local_viz_msg_) ;
+	}
+	else{
+		DrawArc(center, r +blOffset,start_angle,start_angle+rSign*angle_diff,color,local_viz_msg_) ;
+	}    
+}
+
+void plotCar(int color){
+	const Vector2f bl(actualLocation.x()-w/2*sin(actualAngle),actualLocation.y()+w/2*cos(actualAngle));
+	const Vector2f br(actualLocation.x()+w/2*sin(actualAngle),actualLocation.y()-w/2*cos(actualAngle));
+	const Vector2f fl(actualLocation.x()-w/2*sin(actualAngle)+l*cos(actualAngle),actualLocation.y()+w/2*cos(actualAngle)+l*sin(actualAngle));
+	const Vector2f fr(actualLocation.x()+w/2*sin(actualAngle)+l*cos(actualAngle),actualLocation.y()-w/2*cos(actualAngle)+l*sin(actualAngle));
+	DrawLine(bl,br, color,local_viz_msg_);
+	DrawLine(bl,fl, color,local_viz_msg_);
+	DrawLine(br,fr, color,local_viz_msg_);
+	DrawLine(fl,fr, color,local_viz_msg_);
+	DrawCross(actualLocation, .2, color,local_viz_msg_);
+
+}
+
 void Navigation::Run() {
 	ClearVisualizationMsg(local_viz_msg_);
     viz_pub_.publish(local_viz_msg_);
 	
     drive_msg_.curvature = .4;
+	float curve = drive_msg_.curvature;
 	r = abs(1/drive_msg_.curvature);
 	
 
@@ -251,42 +310,87 @@ void Navigation::Run() {
 		}
 	}
      
-   
+	//obstacle detection
+	//float distLeft = goalDistance - s;
+	float rSign = 1;
+	if(drive_msg_.curvature <0 ){ rSign = -1;}
+	
+	//float strAng = abs(atan(drive_msg_.curvature*l));
+	//float p = w*cos(strAng) + l*sin(strAng);
+	float innerRad = r - w/2;
+	float outerRad = sqrt(pow(r+w/2,2)+pow(l,2));
+	float p = outerRad - innerRad;
+	
+	//float f = l*sin(strAng);
+	//float shortestPath = 0;
+	//for curved obstacle detection
+	if(curve!=0){
+		//calculate steering angle 
 
+		int cloudSize = points.size();
+		//ROS_INFO("cloud size is: %i",cloudSize);
+		const Vector2f centerRef(0,rSign*r);
+		static vector<Vector2f> rel_points;
+		float minObstAngle = 2*M_PI;
+		//float maxPointRad = 0;
+		float pointRad = 0;
+		for(int i =0; i<cloudSize; i++){
+			//const Vector2f point(points[i].x(),points[i].y());
+			pointRad = dist(points.at(i),centerRef);
+			
+			//need to fix this  ^^^ calculate magnitude of points.at(i) to center of rotation
+			//ROS_INFO("point x: %f y: %f",points.at(i).x(),points.at(i).y());
+			//ROS_INFO("i: %i",i);
+			
+			if((pointRad >= innerRad)&&(pointRad<= outerRad)){
+				float obstAngle = getScanAngle(points.at(i),r,pointRad);
+				if(obstAngle < minObstAngle){
+					minObstAngle = obstAngle;
+					//maxPointRad = pointRad;
+				}
+				
+				rel_points.push_back(points.at(i));
+				const Vector2f relPoint(points.at(i).x()*cos(actualAngle)-points.at(i).y()*sin(actualAngle)+actualLocation.x(),points.at(i).y()*cos(actualAngle)+points.at(i).x()*sin(actualAngle)+actualLocation.y());
+				DrawPoint(points.at(i), 0x6A0DAD, local_viz_msg_);
+				DrawPoint(relPoint, 0x6A0DAD, local_viz_msg_);
+				
+				
+				//viz_pub_.publish(local_viz_msg_);
+				//ROS_INFO("point x: %f y: %f",points.at(i).x(),points.at(i).y());
+			}
+		}
+		//float angle_diff = (distLeft)/r;
+		plotLinkArc(drive_msg_.curvature, minObstAngle, 0x77fc03, 0);
+		plotLinkArcOrigin(drive_msg_.curvature, minObstAngle, 0x77fc03, 0);
+
+		
+	}
+   
+    //output information on console
+	ROS_INFO("Inner: %f, Outer: %f, P: %f",innerRad,outerRad,p);
     ROS_INFO("Distance Traveled: %f",s);
     ROS_INFO("Velocity: %f",mag(robot_vel_));
 	ROS_INFO("Phi: %f",phi);
-
+	ROS_INFO("True-Location(%f,%f), Angle(%f)",actualLocation.x(),actualLocation.y(),actualAngle);
     ROS_INFO("--------------");
     drive_pub_.publish(drive_msg_);
 	
-	//DrawPoint(cloud.at(i), 0x77fc03, local_viz_msg_);
-	//calculate center of rotation to draw arc
-	float distLeft = goalDistance - s;
-	float rSign = 1;
+    //draw the curve or line that the bot is following
+
+	//plot remaining path to traverse
+	/*
 	if(drive_msg_.curvature !=0){
-		if(drive_msg_.curvature <0 ){ rSign = -1;}
-		const Vector2f center(actualLocation.x() - rSign*r*sin(actualAngle),actualLocation.y() + rSign*r*cos(actualAngle));
-		float start_angle = atan2(actualLocation.y()-center.y(),actualLocation.x()-center.x());
 		float angle_diff = (distLeft)/r;
-		if(drive_msg_.curvature <0){
-			DrawArc(center, r ,start_angle+rSign*angle_diff,start_angle,0x77fc03,local_viz_msg_) ;
-		}
-		else{
-			DrawArc(center, r ,start_angle,start_angle+rSign*angle_diff,0x77fc03,local_viz_msg_) ;
-		}
-		
+		plotLinkArc(drive_msg_.curvature, angle_diff, 0x77fc03, 0);
 	}
+	//if moving in a straight line
 	else{
-		
 		const Vector2f end(actualLocation.x() + distLeft*cos(actualAngle),actualLocation.y() + distLeft*sin(actualAngle));
-		DrawLine(actualLocation, end, 0x0000ff,local_viz_msg_);
-	}
-	
-	
-	DrawCross(actualLocation, .6, 0x0000ff,local_viz_msg_);
-	const Vector2f car1(actualLocation.x() + .8*cos(actualAngle), actualLocation.y() + .8*sin(actualAngle));
-	DrawCross(car1, .3, 0x0000ff,local_viz_msg_);	
+		DrawLine(actualLocation, end, 0x77fc03,local_viz_msg_);
+	}*/
+
+	//draw the actual bot
+	plotCar(0x0000ff);
 	viz_pub_.publish(local_viz_msg_);
 
 

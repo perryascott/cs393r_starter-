@@ -84,19 +84,28 @@ void LaserCallback(const sensor_msgs::LaserScan& msg) {
            GetWallTime() - msg.header.stamp.toSec());
   }
   static vector<Vector2f> point_cloud_;
+
   float angleMax = -3*M_PI/4;
   float angleIncr = (3*M_PI/2)/1080;
   // Location of the laser on the robot. Assumes the laser is forward-facing.
   const Vector2f kLaserLoc(0.2, 0);
   float xCord = 0;
   float yCord = 0;
+  //ROS_INFO("cloud size : %i",rangeSize);
+  point_cloud_.clear();
   for (int i = 0; i < rangeSize; ++i){
+	  
 	 float laserAngle = angleMax + (angleIncr * i);
-	 xCord = rangeArray[0][i]*cos(laserAngle) - kLaserLoc.x();
-	 yCord = rangeArray[0][i]*sin(laserAngle) - kLaserLoc.y();
+	 xCord = rangeArray[0][i]*cos(laserAngle) + kLaserLoc.x();
+	 yCord = rangeArray[0][i]*sin(laserAngle) + kLaserLoc.y();
 	 const Vector2f converted(xCord ,yCord);
+	 //ROS_INFO("xcord: %f, ycord: %f",xCord,yCord);
 	 point_cloud_.push_back(converted);
+	 //ROS_INFO("Vector-xcord: %f, ycord: %f",converted.x(),converted.y());
+
+	 //converted.clear();
   }
+ 
   //ROS_INFO("First Value in vector: %f", navigation_->robot_angle_);
 
   
