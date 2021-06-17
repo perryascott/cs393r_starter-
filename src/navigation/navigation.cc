@@ -173,6 +173,7 @@ float s = 0;
 float phi = 0;
 float r = 0;
 const Vector2f zeroLocation(0,0);
+float rSign = 1;
 
 float maxMagDiff = -1;
 
@@ -183,43 +184,60 @@ float isosGetAngle(const Vector2f& start, const Vector2f& end,float obstR){
 }
 
 float getScanAngle(const Vector2f& obst, float baseLinkr, float pointRad){
-	//const Vector2f newObst(obst.x(),obst.y() - baseLinkr);
-    if(obst.x() <0){
-		return 2*M_PI - atan2(obst.x(),(obst.y() - baseLinkr)*-1);
+	
+	if(rSign == 1){
+		if(obst.x() <0){
+			return 2*M_PI - atan2(obst.x(),(obst.y() - rSign*baseLinkr)*-1);
+		}
+		else{
+			return atan2(obst.x(),(obst.y() - rSign*baseLinkr)*-1);
+		}
 	}
 	else{
-		return atan2(obst.x(),(obst.y() - baseLinkr)*-1);
+		if(obst.x() <0){
+			return M_PI - atan2(obst.x(),(obst.y() - rSign*baseLinkr)*-1);
+		}
+		else{
+			return M_PI - atan2(obst.x(),(obst.y() - rSign*baseLinkr)*-1);
+		}
 	}
+	
 }
 
-void plotLinkArc(float curve, float rCent, float angle_diff,int color, float blOffset){
+void plotLinkArc(float curve, float rCent, float angle_diff,int color){
 	
 	float rad=abs(1/curve);
-	float rSign = 1;
-	if (curve<0){rSign = -1;}
+	
 	const Vector2f center(actualLocation.x() - rSign*rCent*sin(actualAngle),actualLocation.y() + rSign*rCent*cos(actualAngle));
 	float start_angle = atan2(actualLocation.y()-center.y(),actualLocation.x()-center.x());
 	if(curve<0){
-		DrawArc(center, rad + blOffset,start_angle+rSign*angle_diff,start_angle,color,local_viz_msg_) ;
+		DrawArc(center, rad ,start_angle-angle_diff,start_angle,color,local_viz_msg_) ;
 	}
 	else{
-		DrawArc(center, rad +blOffset,start_angle,start_angle+rSign*angle_diff,color,local_viz_msg_) ;
+		DrawArc(center, rad ,start_angle,start_angle+angle_diff,color,local_viz_msg_) ;
 	}    
 }
 
-void plotObstArc(float curve, float rCent, float ang_dist,float ang_offset,int color, float blOffset){
+void plotObstArc(float curve, float rCent, float ang_dist,float ang_offset,int color){
 	
 	float rad=abs(1/curve); 
 	float rSign = 1;
 	if (curve<0){rSign = -1;}
 	const Vector2f center(actualLocation.x() - rSign*rCent*sin(actualAngle),actualLocation.y() + rSign*rCent*cos(actualAngle));
 	float start_angle = atan2(actualLocation.y()-center.y(),actualLocation.x()-center.x());
+	/*
 	if(curve<0){
-		DrawArc(center, rad + blOffset,start_angle+rSign*(ang_dist+ang_offset),start_angle+ang_offset,color,local_viz_msg_) ;
+		DrawArc(center, rad ,start_angle+rSign*(ang_dist+ang_offset),start_angle+ang_offset,color,local_viz_msg_) ;
 	}
 	else{
-		DrawArc(center, rad +blOffset,start_angle+ang_offset,start_angle+rSign*(ang_dist+ang_offset),color,local_viz_msg_) ;
-	}    
+		DrawArc(center, rad ,start_angle+ang_offset,start_angle+rSign*(ang_dist+ang_offset),color,local_viz_msg_) ;
+	}    */
+	if(curve<0){
+		DrawArc(center, rad ,start_angle - (ang_dist+ang_offset),start_angle - (ang_offset),color,local_viz_msg_) ;
+	}
+	else{
+		DrawArc(center, rad ,start_angle+(ang_offset),start_angle+(ang_dist+ang_offset),color,local_viz_msg_) ;
+	}  
 }
 
 void plotCar(int color){
@@ -240,7 +258,7 @@ void Navigation::Run() {
 	ClearVisualizationMsg(local_viz_msg_);
     viz_pub_.publish(local_viz_msg_);
 	
-    drive_msg_.curvature = 1;
+    drive_msg_.curvature = -.3;
 	float curve = drive_msg_.curvature;
 	r = abs(1/drive_msg_.curvature);
 	
@@ -311,43 +329,56 @@ void Navigation::Run() {
 		}
 	}
      
-	//obstacle detection
+	 
+	 
+	//OBSTACLE DETECTION ---------------------------------------------------
 	//float distLeft = goalDistance - s;
-	float rSign = 1;
-	if(drive_msg_.curvature <0 ){ rSign = -1;}
-	
-	//float strAng = abs(atan(drive_msg_.curvature*l));
-	
-	float innerRad = r - w/2;
-	float outerRad = sqrt(pow(r+w/2,2)+pow(l,2));
-	
-	
-	
-	//float shortestPath = 0;
+
 	//for curved obstacle detection
 	if(curve!=0){
-		//calculate steering angle 
-
-		int cloudSize = points.size();
 		
-		const Vector2f centerRef(0,rSign*r);
-		static vector<Vector2f> rel_points;
-		float min_obst_angle = 2*M_PI;
-		float minPointRad = 0;
-		float pointRad = 0;
-		float angle_offset = 0;
-		const Vector2f k(l,w/2);
-		float kRad = dist(centerRef,k);
-		//float kAngle = atan2(l,(w/2-r)*-1);
-		//float tAngle = atan2(l,(-w/2-r)*-1);
-		float min_angle_offset = 0;
+		//used to compensate for negative curvature (right turns)
+		
+		if(curve <0 ){ rSign = -1;}
+		
+		//calculate inner and outer radii of turning using vehicle geometry
+		float innerRad = r - w/2;
+		float outerRad = sqrt(pow(r+w/2,2)+pow(l,2));
+		
+		//# of points in scan
+		int cloudSize = points.size(); 
+		
+		//reference vector to center of rotation
+		const Vector2f centerRef(0,rSign*r); 
+
+		// corner of car calcs
+		const Vector2f k(l,rSign*w/2); //reference vector for the front inside corner of car
+		float kRad = dist(centerRef,k);// radius of this corner
+
+		//vars
+		float pointRad = 0; //radius that an obstacle point makes with centerRef
+		float angle_offset = 0; //offset that depends on where obstacle intersects with car
+		float raw_obst_angle = 0;
+		
+		//vars for holding shortest path properties
+		float min_obst_angle = 2*M_PI; //shortest path in the scan array in [rads]
+		float minPointRad = 0; //the radius at which this shortest path occured
+		float min_angle_offset = 0;//
+		//float min_scan = 2*M_PI;
+		//float min_scan_rad = 0;
+		//for each point in the laser scan
 		for(int i =0; i<cloudSize; i++){
 			
+			//calculate radius of point from center of rotation
 			pointRad = dist(points.at(i),centerRef);
 			
-			
+			//if within the radii of rotation, point is within path of movement for car
 			if((pointRad >= innerRad)&&(pointRad<= outerRad)){
-				float raw_obst_angle = getScanAngle(points.at(i),r,pointRad);
+				
+				//find the angle between baselink and obstacle about center of rotation
+				raw_obst_angle = getScanAngle(points.at(i),r,pointRad);
+				
+				//depending on the obstacles radius, account for angle created between baselink and point of intersection with the vehicle
 				if (pointRad <= kRad){
 					
 					angle_offset = acos((r-w/2)/pointRad);
@@ -356,69 +387,53 @@ void Navigation::Run() {
 				else{
 					angle_offset = asin(l/pointRad);
 				}
-				
 				/*
-				if (pointRad <= kRad){
-					
-					angle_offset = (pointRad - innerRad)/(kRad-innerRad)*kAngle;
-					
-				}
-				else{
-					angle_offset = kAngle - (kAngle-tAngle)*(pointRad-kRad)/(outerRad-kRad);
-				}*/
-				/*
-				const Vector2f centerRadRef(0,r-pointRad);
-
-				if (pointRad <= kRad){
-					float xDist = (pointRad - innerRad)/(kRad-innerRad)*l;
-					const Vector2f obstRef(xDist, w/2);
-					angle_offset = isosGetAngle(obstRef,centerRadRef,pointRad);
-					
-				}
-				else{
-					float yDist = w/2 - (pointRad-kRad)/(outerRad-kRad)*w;
-					const Vector2f obstRef(l,yDist);
-					angle_offset = isosGetAngle(obstRef,centerRadRef,pointRad);
+				if(raw_obst_angle < min_scan){
+					min_scan = raw_obst_angle;
+					min_scan_rad = pointRad;
 				}*/
 				
+				//subtract this offset
 				float adj_obst_angle = raw_obst_angle - angle_offset;
 				
+				//record shortest path and its parameters
 				if(adj_obst_angle < min_obst_angle){
 					min_obst_angle = adj_obst_angle;
 					minPointRad = pointRad;
 					min_angle_offset = angle_offset;
 				}
 				
-				rel_points.push_back(points.at(i));
+				//graph relevant points 
 				const Vector2f relPoint(points.at(i).x()*cos(actualAngle)-points.at(i).y()*sin(actualAngle)+actualLocation.x(),points.at(i).y()*cos(actualAngle)+points.at(i).x()*sin(actualAngle)+actualLocation.y());
-				DrawPoint(points.at(i), 0x6A0DAD, local_viz_msg_);
 				DrawPoint(relPoint, 0x6A0DAD, local_viz_msg_);
-				
-				
-				
-				//ROS_INFO("point x: %f y: %f",points.at(i).x(),points.at(i).y());
+				//DrawPoint(points.at(i), 0x6A0DAD, local_viz_msg_);
+
 			}
 		}
+		//ROS_INFO("min_obst_angle: %f min_angle_ofset: %f ",min_obst_angle, min_angle_offset);
+		//if the obstacle angle is negative for some reason, set to zero
 		if (min_obst_angle < 0){
 			min_obst_angle = 0;
 		}
-		ROS_INFO("point rad: %f k rad: %f angle_offset: %f",minPointRad,kRad, min_angle_offset);
-		//float angle_diff = (distLeft)/r;
-		//plotLinkArc(1/minPointRad,r, min_obst_angle, 0x77fc03, 0);
-		//plotLinkArc(1/minPointRad,r, min_obst_angle+min_angle_offset, 0x77fc03, 0);
-		plotLinkArc(1/r, r, min_obst_angle, 0x000000, 0);
-		//plotLinkArc(1/outerRad, r, tAngle, 0xFFC0CB, 0);
-		//plotLinkArc(1/(kRad), r, kAngle, 0x964B00, 0);
-		//plotLinkArc(1/(innerRad), r, kAngle, 0x964B00, 0);
-		plotObstArc(1/minPointRad, r, min_obst_angle, min_angle_offset,0x77fc03, 0);
+		//plotLinkArc(1/min_scan_rad*rSign,r, min_scan, 0x77fc03);
 		
-		//plotLinkArcOrigin(drive_msg_.curvature, minObstAngle, 0x77fc03, 0);
-
+		//plotLinkArc(1/minPointRad*rSign,r, min_obst_angle, 0x77fc03);
 		
+		
+		//plotLinkArc(1/minPointRad*rSign,r, min_obst_angle+min_angle_offset, 0x77fc03);
+		//plotLinkArc(1/r, r, min_obst_angle, 0x000000);
+		
+		//arc of different set radii
+		//plotLinkArc(1/outerRad, r, tAngle, 0xFFC0CB);
+		//plotLinkArc(1/(kRad), r, kAngle, 0x964B00);
+		//plotLinkArc(1/(innerRad), r, kAngle, 0x964B00);
+		
+		plotObstArc(1/minPointRad*rSign, r, min_obst_angle, min_angle_offset,0x77fc03);
+	
 	}
    
     //output information on console
-	//ROS_INFO("Inner: %f, Outer: %f, P: %f",innerRad,outerRad,p);
+
     ROS_INFO("Distance Traveled: %f",s);
     //ROS_INFO("Velocity: %f",mag(robot_vel_));
 	//ROS_INFO("Phi: %f",phi);
