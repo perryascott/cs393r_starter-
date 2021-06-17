@@ -154,7 +154,8 @@ float w = 0.4; //vehicle width
  //time optimal control vars
 float maxa = 12; //max acceleration m/s^2
 float maxd = 4; //max deceleration m/s^2
-float vmax = .05; //max speed m/s
+float vmax = .00; //max speed m/s
+
 
 float deltaT = .05; //time step between calls of Run()
 float goalDistance = 10; //total distance to travel in x direction
@@ -182,42 +183,42 @@ float isosGetAngle(const Vector2f& start, const Vector2f& end,float obstR){
 }
 
 float getScanAngle(const Vector2f& obst, float baseLinkr, float pointRad){
-	const Vector2f origin(0,pointRad-baseLinkr);
+	//const Vector2f newObst(obst.x(),obst.y() - baseLinkr);
     if(obst.x() <0){
-		return 2*M_PI - isosGetAngle(origin,obst,pointRad);
+		return 2*M_PI - atan2(obst.x(),(obst.y() - baseLinkr)*-1);
 	}
 	else{
-		return isosGetAngle(origin,obst,pointRad);
+		return atan2(obst.x(),(obst.y() - baseLinkr)*-1);
 	}
 }
 
-void plotLinkArc(float curve, float angle_diff,int color, float blOffset){
+void plotLinkArc(float curve, float rCent, float angle_diff,int color, float blOffset){
 	
 	float rad=abs(1/curve);
 	float rSign = 1;
 	if (curve<0){rSign = -1;}
-	const Vector2f center(actualLocation.x() - rSign*rad*sin(actualAngle),actualLocation.y() + rSign*rad*cos(actualAngle));
+	const Vector2f center(actualLocation.x() - rSign*rCent*sin(actualAngle),actualLocation.y() + rSign*rCent*cos(actualAngle));
 	float start_angle = atan2(actualLocation.y()-center.y(),actualLocation.x()-center.x());
 	if(curve<0){
-		DrawArc(center, r + blOffset,start_angle+rSign*angle_diff,start_angle,color,local_viz_msg_) ;
+		DrawArc(center, rad + blOffset,start_angle+rSign*angle_diff,start_angle,color,local_viz_msg_) ;
 	}
 	else{
-		DrawArc(center, r +blOffset,start_angle,start_angle+rSign*angle_diff,color,local_viz_msg_) ;
+		DrawArc(center, rad +blOffset,start_angle,start_angle+rSign*angle_diff,color,local_viz_msg_) ;
 	}    
 }
 
-void plotLinkArcOrigin(float curve, float angle_diff,int color, float blOffset){
+void plotObstArc(float curve, float rCent, float ang_dist,float ang_offset,int color, float blOffset){
 	
-	float rad=abs(1/curve);
+	float rad=abs(1/curve); 
 	float rSign = 1;
 	if (curve<0){rSign = -1;}
-	const Vector2f center( 0,  rSign*rad);
-	float start_angle = atan2(-center.y(),-center.x());
+	const Vector2f center(actualLocation.x() - rSign*rCent*sin(actualAngle),actualLocation.y() + rSign*rCent*cos(actualAngle));
+	float start_angle = atan2(actualLocation.y()-center.y(),actualLocation.x()-center.x());
 	if(curve<0){
-		DrawArc(center, r + blOffset,start_angle+rSign*angle_diff,start_angle,color,local_viz_msg_) ;
+		DrawArc(center, rad + blOffset,start_angle+rSign*(ang_dist+ang_offset),start_angle+ang_offset,color,local_viz_msg_) ;
 	}
 	else{
-		DrawArc(center, r +blOffset,start_angle,start_angle+rSign*angle_diff,color,local_viz_msg_) ;
+		DrawArc(center, rad +blOffset,start_angle+ang_offset,start_angle+rSign*(ang_dist+ang_offset),color,local_viz_msg_) ;
 	}    
 }
 
@@ -235,22 +236,22 @@ void plotCar(int color){
 }
 
 void Navigation::Run() {
+	
 	ClearVisualizationMsg(local_viz_msg_);
     viz_pub_.publish(local_viz_msg_);
 	
-    drive_msg_.curvature = .4;
+    drive_msg_.curvature = 1;
 	float curve = drive_msg_.curvature;
 	r = abs(1/drive_msg_.curvature);
 	
 
-	
+	//initialize 
     if (runCount < 8){
-	startOdomY = robot_loc_.y();
-	startOdomX = robot_loc_.x();
-	runCount++;
-    const Vector2f startLocation(actualLocation.x(),actualLocation.y());
-
-	ROS_INFO("initializing starting odometry");
+		startOdomY = robot_loc_.y();
+		startOdomX = robot_loc_.x();
+		runCount++;
+		const Vector2f startLocation(actualLocation.x(),actualLocation.y());
+		ROS_INFO("initializing starting odometry");
     } 
     
     //calculate distance traveled and velocity magnitude
@@ -316,37 +317,76 @@ void Navigation::Run() {
 	if(drive_msg_.curvature <0 ){ rSign = -1;}
 	
 	//float strAng = abs(atan(drive_msg_.curvature*l));
-	//float p = w*cos(strAng) + l*sin(strAng);
+	
 	float innerRad = r - w/2;
 	float outerRad = sqrt(pow(r+w/2,2)+pow(l,2));
-	float p = outerRad - innerRad;
 	
-	//float f = l*sin(strAng);
+	
+	
 	//float shortestPath = 0;
 	//for curved obstacle detection
 	if(curve!=0){
 		//calculate steering angle 
 
 		int cloudSize = points.size();
-		//ROS_INFO("cloud size is: %i",cloudSize);
+		
 		const Vector2f centerRef(0,rSign*r);
 		static vector<Vector2f> rel_points;
-		float minObstAngle = 2*M_PI;
-		//float maxPointRad = 0;
+		float min_obst_angle = 2*M_PI;
+		float minPointRad = 0;
 		float pointRad = 0;
+		float angle_offset = 0;
+		const Vector2f k(l,w/2);
+		float kRad = dist(centerRef,k);
+		//float kAngle = atan2(l,(w/2-r)*-1);
+		//float tAngle = atan2(l,(-w/2-r)*-1);
+		float min_angle_offset = 0;
 		for(int i =0; i<cloudSize; i++){
-			//const Vector2f point(points[i].x(),points[i].y());
+			
 			pointRad = dist(points.at(i),centerRef);
 			
-			//need to fix this  ^^^ calculate magnitude of points.at(i) to center of rotation
-			//ROS_INFO("point x: %f y: %f",points.at(i).x(),points.at(i).y());
-			//ROS_INFO("i: %i",i);
 			
 			if((pointRad >= innerRad)&&(pointRad<= outerRad)){
-				float obstAngle = getScanAngle(points.at(i),r,pointRad);
-				if(obstAngle < minObstAngle){
-					minObstAngle = obstAngle;
-					//maxPointRad = pointRad;
+				float raw_obst_angle = getScanAngle(points.at(i),r,pointRad);
+				if (pointRad <= kRad){
+					
+					angle_offset = acos((r-w/2)/pointRad);
+					
+				}
+				else{
+					angle_offset = asin(l/pointRad);
+				}
+				
+				/*
+				if (pointRad <= kRad){
+					
+					angle_offset = (pointRad - innerRad)/(kRad-innerRad)*kAngle;
+					
+				}
+				else{
+					angle_offset = kAngle - (kAngle-tAngle)*(pointRad-kRad)/(outerRad-kRad);
+				}*/
+				/*
+				const Vector2f centerRadRef(0,r-pointRad);
+
+				if (pointRad <= kRad){
+					float xDist = (pointRad - innerRad)/(kRad-innerRad)*l;
+					const Vector2f obstRef(xDist, w/2);
+					angle_offset = isosGetAngle(obstRef,centerRadRef,pointRad);
+					
+				}
+				else{
+					float yDist = w/2 - (pointRad-kRad)/(outerRad-kRad)*w;
+					const Vector2f obstRef(l,yDist);
+					angle_offset = isosGetAngle(obstRef,centerRadRef,pointRad);
+				}*/
+				
+				float adj_obst_angle = raw_obst_angle - angle_offset;
+				
+				if(adj_obst_angle < min_obst_angle){
+					min_obst_angle = adj_obst_angle;
+					minPointRad = pointRad;
+					min_angle_offset = angle_offset;
 				}
 				
 				rel_points.push_back(points.at(i));
@@ -355,23 +395,34 @@ void Navigation::Run() {
 				DrawPoint(relPoint, 0x6A0DAD, local_viz_msg_);
 				
 				
-				//viz_pub_.publish(local_viz_msg_);
+				
 				//ROS_INFO("point x: %f y: %f",points.at(i).x(),points.at(i).y());
 			}
 		}
+		if (min_obst_angle < 0){
+			min_obst_angle = 0;
+		}
+		ROS_INFO("point rad: %f k rad: %f angle_offset: %f",minPointRad,kRad, min_angle_offset);
 		//float angle_diff = (distLeft)/r;
-		plotLinkArc(drive_msg_.curvature, minObstAngle, 0x77fc03, 0);
-		plotLinkArcOrigin(drive_msg_.curvature, minObstAngle, 0x77fc03, 0);
+		//plotLinkArc(1/minPointRad,r, min_obst_angle, 0x77fc03, 0);
+		//plotLinkArc(1/minPointRad,r, min_obst_angle+min_angle_offset, 0x77fc03, 0);
+		plotLinkArc(1/r, r, min_obst_angle, 0x000000, 0);
+		//plotLinkArc(1/outerRad, r, tAngle, 0xFFC0CB, 0);
+		//plotLinkArc(1/(kRad), r, kAngle, 0x964B00, 0);
+		//plotLinkArc(1/(innerRad), r, kAngle, 0x964B00, 0);
+		plotObstArc(1/minPointRad, r, min_obst_angle, min_angle_offset,0x77fc03, 0);
+		
+		//plotLinkArcOrigin(drive_msg_.curvature, minObstAngle, 0x77fc03, 0);
 
 		
 	}
    
     //output information on console
-	ROS_INFO("Inner: %f, Outer: %f, P: %f",innerRad,outerRad,p);
+	//ROS_INFO("Inner: %f, Outer: %f, P: %f",innerRad,outerRad,p);
     ROS_INFO("Distance Traveled: %f",s);
-    ROS_INFO("Velocity: %f",mag(robot_vel_));
-	ROS_INFO("Phi: %f",phi);
-	ROS_INFO("True-Location(%f,%f), Angle(%f)",actualLocation.x(),actualLocation.y(),actualAngle);
+    //ROS_INFO("Velocity: %f",mag(robot_vel_));
+	//ROS_INFO("Phi: %f",phi);
+	//ROS_INFO("True-Location(%f,%f), Angle(%f)",actualLocation.x(),actualLocation.y(),actualAngle);
     ROS_INFO("--------------");
     drive_pub_.publish(drive_msg_);
 	
