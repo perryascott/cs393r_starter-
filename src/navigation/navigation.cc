@@ -123,22 +123,10 @@ int cloudSize = 0;
 void Navigation::ObservePointCloud(const vector<Vector2f>& cloud,
                                    double time){
 	points = cloud;
-/*
-    cloudSize = cloud.size();
-    for (int i = 0; i < cloudSize; ++i) {
-        DrawPoint(cloud.at(i), 0x77fc03, local_viz_msg_);
-        viz_pub_.publish(local_viz_msg_);
-    }*/
-}
-float mag(const Vector2f& vect){
-    return sqrt(pow(vect.x(),2) + pow(vect.y(),2));
+
 }
 
-float dist(const Vector2f& vect1, const Vector2f& vect2){
-	const Vector2f vectDist(vect1.x()-vect2.x(),vect1.y()-vect2.y());
-	return mag(vectDist);
-}
-
+//PARAMETERS ---------------------------------------------------------
 
 
 //vehicle parameters
@@ -149,23 +137,21 @@ float w = 0.4; //vehicle width
 //float m = 0.05; //obstacle safety margin
 
 
-
-
  //time optimal control vars
 float maxa = 12; //max acceleration m/s^2
 float maxd = 4; //max deceleration m/s^2
-float vmax = .00; //max speed m/s
+float vmax = .5; //max speed m/s
 
 
 float deltaT = .05; //time step between calls of Run()
-float goalDistance = 10; //total distance to travel in x direction
+
 float minStopDist = 0; 
 int runCount = 0;
 float startOdomY = 0;
 float startOdomX = 0;
 float currentOdomY = 0;
 float currentOdomX = 0;
-float velMag = 0;
+
 float absDiffX = 0;
 float absDiffY = 0;
 float magDiff = 0;
@@ -176,13 +162,31 @@ const Vector2f zeroLocation(0,0);
 float rSign = 1;
 
 float maxMagDiff = -1;
+float distLeft = 10;
 
+//HELPER FUNCTIONS---------------------------------------------------------------
+
+//return magnitude of vector 
+float mag(const Vector2f& vect){
+    return sqrt(pow(vect.x(),2) + pow(vect.y(),2));
+}
+
+//return distance between 2 vectors
+float dist(const Vector2f& vect1, const Vector2f& vect2){
+	const Vector2f vectDist(vect1.x()-vect2.x(),vect1.y()-vect2.y());
+	return mag(vectDist);
+}
+
+//return angle of isoseles triangle using vector start and end (the two that have same angle in a isoseles)
+//and their radius to the 3rd point
 float isosGetAngle(const Vector2f& start, const Vector2f& end,float obstR){
 	const Vector2f vect(start.x()-end.x(),start.y()-end.y());
 	float startEndMag = mag(vect);
 	return 2*asin(startEndMag/(2*obstR));
 }
 
+
+//returns angle between reference vector obst and origin using baselink radius and point radius 
 float getScanAngle(const Vector2f& obst, float baseLinkr, float pointRad){
 	
 	if(rSign == 1){
@@ -204,6 +208,9 @@ float getScanAngle(const Vector2f& obst, float baseLinkr, float pointRad){
 	
 }
 
+//PLOTTER FUNCTIONS----------------------------------------------------
+
+//plots arc from base link using curve curvature, rCent as the center of rotation radius, angle_diff as length
 void plotLinkArc(float curve, float rCent, float angle_diff,int color){
 	
 	float rad=abs(1/curve);
@@ -218,6 +225,8 @@ void plotLinkArc(float curve, float rCent, float angle_diff,int color){
 	}    
 }
 
+//plots arc from front edge using curve curvature, rCent as the center of rotation radius, angle_dist as length
+// and ang_offset as angle from baselink to the leading edge
 void plotObstArc(float curve, float rCent, float ang_dist,float ang_offset,int color){
 	
 	float rad=abs(1/curve); 
@@ -225,13 +234,7 @@ void plotObstArc(float curve, float rCent, float ang_dist,float ang_offset,int c
 	if (curve<0){rSign = -1;}
 	const Vector2f center(actualLocation.x() - rSign*rCent*sin(actualAngle),actualLocation.y() + rSign*rCent*cos(actualAngle));
 	float start_angle = atan2(actualLocation.y()-center.y(),actualLocation.x()-center.x());
-	/*
-	if(curve<0){
-		DrawArc(center, rad ,start_angle+rSign*(ang_dist+ang_offset),start_angle+ang_offset,color,local_viz_msg_) ;
-	}
-	else{
-		DrawArc(center, rad ,start_angle+ang_offset,start_angle+rSign*(ang_dist+ang_offset),color,local_viz_msg_) ;
-	}    */
+
 	if(curve<0){
 		DrawArc(center, rad ,start_angle - (ang_dist+ang_offset),start_angle - (ang_offset),color,local_viz_msg_) ;
 	}
@@ -253,57 +256,17 @@ void plotCar(int color){
 
 }
 
-void Navigation::Run() {
-	
-	ClearVisualizationMsg(local_viz_msg_);
-    viz_pub_.publish(local_viz_msg_);
-	
-    drive_msg_.curvature = -.3;
-	float curve = drive_msg_.curvature;
-	r = abs(1/drive_msg_.curvature);
-	
+//TIME OPTIMAL CONTROL ---------------------------------------------------
 
-	//initialize 
-    if (runCount < 8){
-		startOdomY = robot_loc_.y();
-		startOdomX = robot_loc_.x();
-		runCount++;
-		const Vector2f startLocation(actualLocation.x(),actualLocation.y());
-		ROS_INFO("initializing starting odometry");
-    } 
-    
-    //calculate distance traveled and velocity magnitude
-    currentOdomY = robot_loc_.y();
-    currentOdomX = robot_loc_.x();
-    absDiffX = abs(startOdomX - currentOdomX);
-    absDiffY = abs(startOdomY - currentOdomY);
-    magDiff = sqrt(pow(absDiffX,2)+pow(absDiffY,2));
-    velMag = mag(robot_vel_);
-
-	//if driving straight, arc length is simply distance traveled
+void TOC(float dist, float velMag){
 	
-	if(drive_msg_. curvature == 0){
-		phi = 0;
-		s = magDiff;
-	}
-	//if operating on a curve, determing arc length moved along curve
-	else{			
-			if(magDiff >= maxMagDiff){
-				maxMagDiff = magDiff;
-				phi = 2*asin(magDiff/(2*r));
-				s = abs((phi)*r);
-			} 
-			else{
-				phi = M_PI - 2*asin(magDiff/(2*r));
-				s = abs((phi+M_PI)*r);
-			}
-	}
-
+	//get current robot velocity from odometry
+	
 	//if at max speed
 	if(velMag >= vmax){
 		//first make sure enough room to decelerate, if not then stop.
 		minStopDist = pow(velMag,2)/(2*maxd);
-		if((goalDistance - s - deltaT*velMag) <= minStopDist){
+		if((dist - deltaT*velMag) <= minStopDist){
 			drive_msg_.velocity = 0;
 			ROS_INFO("slowing down");
 		}
@@ -317,7 +280,7 @@ void Navigation::Run() {
 		//if not at max speed
 		//assume accerating and ask if at next time step there is sufficient room to stop. If not then stop
 		minStopDist = pow((velMag+deltaT*maxa),2)/(2*maxd);
-		if((goalDistance- s - deltaT*velMag-1/2*maxa*pow(deltaT,2)) <= minStopDist){
+		if((dist - deltaT*velMag-1/2*maxa*pow(deltaT,2)) <= minStopDist){
 			drive_msg_.velocity = 0;
 			ROS_INFO("slowing down");
 		}
@@ -328,25 +291,25 @@ void Navigation::Run() {
 			ROS_INFO("speeding up");
 		}
 	}
-     
-	 
-	 
-	//OBSTACLE DETECTION ---------------------------------------------------
-	//float distLeft = goalDistance - s;
+}
 
-	//for curved obstacle detection
+//OBSTACLE DETECTION -------------------------------------------------------------
+
+float ShortestPathOD(float curve){
+	
+	//# of points in scan
+	int cloudSize = points.size(); 
+
+	//if traveling along a curve
 	if(curve!=0){
+		float r = abs(1/curve);
 		
 		//used to compensate for negative curvature (right turns)
-		
 		if(curve <0 ){ rSign = -1;}
 		
 		//calculate inner and outer radii of turning using vehicle geometry
 		float innerRad = r - w/2;
 		float outerRad = sqrt(pow(r+w/2,2)+pow(l,2));
-		
-		//# of points in scan
-		int cloudSize = points.size(); 
 		
 		//reference vector to center of rotation
 		const Vector2f centerRef(0,rSign*r); 
@@ -361,12 +324,10 @@ void Navigation::Run() {
 		float raw_obst_angle = 0;
 		
 		//vars for holding shortest path properties
-		float min_obst_angle = 2*M_PI; //shortest path in the scan array in [rads]
+		float min_obst_angle = 10.0; //shortest path in the scan array in [rads]
 		float minPointRad = 0; //the radius at which this shortest path occured
-		float min_angle_offset = 0;//
-		//float min_scan = 2*M_PI;
-		//float min_scan_rad = 0;
-		//for each point in the laser scan
+		float min_angle_offset = 0;//offset for shortest path (for plotting)
+		
 		for(int i =0; i<cloudSize; i++){
 			
 			//calculate radius of point from center of rotation
@@ -387,12 +348,7 @@ void Navigation::Run() {
 				else{
 					angle_offset = asin(l/pointRad);
 				}
-				/*
-				if(raw_obst_angle < min_scan){
-					min_scan = raw_obst_angle;
-					min_scan_rad = pointRad;
-				}*/
-				
+
 				//subtract this offset
 				float adj_obst_angle = raw_obst_angle - angle_offset;
 				
@@ -406,38 +362,87 @@ void Navigation::Run() {
 				//graph relevant points 
 				const Vector2f relPoint(points.at(i).x()*cos(actualAngle)-points.at(i).y()*sin(actualAngle)+actualLocation.x(),points.at(i).y()*cos(actualAngle)+points.at(i).x()*sin(actualAngle)+actualLocation.y());
 				DrawPoint(relPoint, 0x6A0DAD, local_viz_msg_);
-				//DrawPoint(points.at(i), 0x6A0DAD, local_viz_msg_);
-
+			
 			}
 		}
-		//ROS_INFO("min_obst_angle: %f min_angle_ofset: %f ",min_obst_angle, min_angle_offset);
+
 		//if the obstacle angle is negative for some reason, set to zero
 		if (min_obst_angle < 0){
 			min_obst_angle = 0;
 		}
+		
+		//different things of interest to plot
 		//plotLinkArc(1/min_scan_rad*rSign,r, min_scan, 0x77fc03);
-		
 		//plotLinkArc(1/minPointRad*rSign,r, min_obst_angle, 0x77fc03);
-		
-		
-		//plotLinkArc(1/minPointRad*rSign,r, min_obst_angle+min_angle_offset, 0x77fc03);
-		//plotLinkArc(1/r, r, min_obst_angle, 0x000000);
-		
-		//arc of different set radii
 		//plotLinkArc(1/outerRad, r, tAngle, 0xFFC0CB);
 		//plotLinkArc(1/(kRad), r, kAngle, 0x964B00);
 		//plotLinkArc(1/(innerRad), r, kAngle, 0x964B00);
-		
 		plotObstArc(1/minPointRad*rSign, r, min_obst_angle, min_angle_offset,0x77fc03);
+		
+		return min_obst_angle * r;
 	
 	}
+	//if traveling in a straight line
+	else{
+
+		float min_dist = 10.0;
+		float min_y = 0;
+		float xCord = 0;
+		float yCord = 0;
+		
+		for(int i =0; i<cloudSize; i++){
+			
+			xCord = points.at(i).x();
+			yCord = points.at(i).y();
+		
+			if(abs(yCord) <= w/2){
+				const Vector2f relPoint(xCord*cos(actualAngle)-yCord*sin(actualAngle)+actualLocation.x(),yCord*cos(actualAngle)+xCord*sin(actualAngle)+actualLocation.y());
+				DrawPoint(relPoint, 0x6A0DAD, local_viz_msg_);
+				if(xCord<min_dist){
+					min_dist = xCord;
+					min_y = yCord;
+				}
+				
+			}
+			
+		}
+		const Vector2f minPoint(min_dist*cos(actualAngle)-min_y*sin(actualAngle)+actualLocation.x(),min_y*cos(actualAngle)+min_dist*sin(actualAngle)+actualLocation.y());
+		const Vector2f relEdge(actualLocation.x() + l*sin(actualAngle),actualLocation.y() + cos(actualAngle));
+		///fix this ^^^^^^
+		DrawLine(minPoint,relEdge, 0x77fc03,local_viz_msg_);
+		return min_dist-l;
+		
+	}
+	
+}
+	
+//MAIN -------------------------------------------------------------------------------------------------
+void Navigation::Run() {
+
+	//set curvature
+    drive_msg_.curvature = 0.0;
+	
+	
+	float velMag = mag(robot_vel_);
+
+	//initialize 
+    if (runCount < 8){
+		startOdomY = robot_loc_.y();
+		startOdomX = robot_loc_.x();
+		runCount++;
+		//const Vector2f startLocation(actualLocation.x(),actualLocation.y());
+		ROS_INFO("initializing starting odometry");
+    } 
+     
+	 
+	//detect and drive up to obstacle
+	distLeft = ShortestPathOD(drive_msg_.curvature);
+	TOC(distLeft,velMag);
    
     //output information on console
 
     ROS_INFO("Distance Traveled: %f",s);
-    //ROS_INFO("Velocity: %f",mag(robot_vel_));
-	//ROS_INFO("Phi: %f",phi);
-	//ROS_INFO("True-Location(%f,%f), Angle(%f)",actualLocation.x(),actualLocation.y(),actualAngle);
+	ROS_INFO("Distance Left: %f",distLeft);
     ROS_INFO("--------------");
     drive_pub_.publish(drive_msg_);
 	
@@ -458,7 +463,7 @@ void Navigation::Run() {
 	//draw the actual bot
 	plotCar(0x0000ff);
 	viz_pub_.publish(local_viz_msg_);
-
+	ClearVisualizationMsg(local_viz_msg_);
 
 }  // namespace navigation
 
