@@ -130,12 +130,16 @@ void Navigation::ObservePointCloud(const vector<Vector2f>& cloud,
 
 
 //vehicle parameters
-float l = 0.7; //vehicle length
-float w = 0.4; //vehicle width
-//float b = 0; //vehicle wheel base length
+float l = 0.6; //vehicle length
+float w = 0.32; //vehicle width
+float b = 0.5; //vehicle wheel base length
 //float d = 0; //track width
-//float m = 0.05; //obstacle safety margin
-
+float m = 0.05; //obstacle safety margin
+float vl = l/2+b/2 + m; //the "virtual length" used for obstacle detection
+float vw = w + 2*m; //the "virutal width" used for obstacle detection
+float maxC = .4; // maximum clearance bound. clearance larger than this is not considered.
+float rearL = l/2-b/2;
+float frontL = l/2 + b/2;
 
  //time optimal control vars
 float maxa = 12; //max acceleration m/s^2
@@ -149,14 +153,15 @@ float minStopDist = 0;
 int runCount = 0;
 float startOdomY = 0;
 float startOdomX = 0;
-float currentOdomY = 0;
-float currentOdomX = 0;
+//float currentOdomY = 0;
+//float currentOdomX = 0;
 
-float absDiffX = 0;
-float absDiffY = 0;
-float magDiff = 0;
-float s = 0;
-float phi = 0;
+//float absDiffX = 0;
+//float absDiffY = 0;
+//float magDiff = 0;
+//float s = 0;
+//float phi = 0;
+
 float r = 0;
 const Vector2f zeroLocation(0,0);
 float rSign = 1;
@@ -243,16 +248,27 @@ void plotObstArc(float curve, float rCent, float ang_dist,float ang_offset,int c
 	}  
 }
 
-void plotCar(int color){
-	const Vector2f bl(actualLocation.x()-w/2*sin(actualAngle),actualLocation.y()+w/2*cos(actualAngle));
-	const Vector2f br(actualLocation.x()+w/2*sin(actualAngle),actualLocation.y()-w/2*cos(actualAngle));
-	const Vector2f fl(actualLocation.x()-w/2*sin(actualAngle)+l*cos(actualAngle),actualLocation.y()+w/2*cos(actualAngle)+l*sin(actualAngle));
-	const Vector2f fr(actualLocation.x()+w/2*sin(actualAngle)+l*cos(actualAngle),actualLocation.y()-w/2*cos(actualAngle)+l*sin(actualAngle));
-	DrawLine(bl,br, color,local_viz_msg_);
-	DrawLine(bl,fl, color,local_viz_msg_);
-	DrawLine(br,fr, color,local_viz_msg_);
-	DrawLine(fl,fr, color,local_viz_msg_);
-	DrawCross(actualLocation, .2, color,local_viz_msg_);
+void plotCar(int color1,int color2){
+	
+	//plot virtual components for obstacle detection
+	const Vector2f bvl(actualLocation.x()-vw/2*sin(actualAngle)-(rearL+m)*cos(actualAngle),actualLocation.y()+vw/2*cos(actualAngle)-(rearL+m)*sin(actualAngle));
+	const Vector2f bvr(actualLocation.x()+vw/2*sin(actualAngle)-(rearL+m)*cos(actualAngle),actualLocation.y()-vw/2*cos(actualAngle)-(rearL+m)*sin(actualAngle));
+	const Vector2f fvl(actualLocation.x()-vw/2*sin(actualAngle)+vl*cos(actualAngle),actualLocation.y()+vw/2*cos(actualAngle)+vl*sin(actualAngle));
+	const Vector2f fvr(actualLocation.x()+vw/2*sin(actualAngle)+vl*cos(actualAngle),actualLocation.y()-vw/2*cos(actualAngle)+vl*sin(actualAngle));
+	DrawLine(bvl,bvr, color1,local_viz_msg_);
+	DrawLine(bvl,fvl, color1,local_viz_msg_);
+	DrawLine(bvr,fvr, color1,local_viz_msg_);
+	DrawLine(fvl,fvr, color1,local_viz_msg_);
+	DrawCross(actualLocation, .1, color2,local_viz_msg_);
+	//plot actual vehicle dimensions
+	const Vector2f bl(actualLocation.x()-w/2*sin(actualAngle)-rearL*cos(actualAngle),actualLocation.y()+w/2*cos(actualAngle)-rearL*sin(actualAngle));
+	const Vector2f br(actualLocation.x()+w/2*sin(actualAngle)-rearL*cos(actualAngle),actualLocation.y()-w/2*cos(actualAngle)-rearL*sin(actualAngle));
+	const Vector2f fl(actualLocation.x()-w/2*sin(actualAngle)+frontL*cos(actualAngle),actualLocation.y()+w/2*cos(actualAngle)+frontL*sin(actualAngle));
+	const Vector2f fr(actualLocation.x()+w/2*sin(actualAngle)+frontL*cos(actualAngle),actualLocation.y()-w/2*cos(actualAngle)+frontL*sin(actualAngle));
+	DrawLine(bl,br, color2,local_viz_msg_);
+	DrawLine(bl,fl, color2,local_viz_msg_);
+	DrawLine(br,fr, color2,local_viz_msg_);
+	DrawLine(fl,fr, color2,local_viz_msg_); 
 
 }
 
@@ -295,11 +311,17 @@ void TOC(float dist, float velMag){
 
 //OBSTACLE DETECTION -------------------------------------------------------------
 
-float ShortestPathOD(float curve){
+float * ShortestPathOD(float curve){
 	
 	//# of points in scan
 	int cloudSize = points.size(); 
-
+	
+	//create return structure
+	static float r[2];
+	float minDist = 0;
+	float minClearance = maxC;
+	float phiHolder = 0;
+	
 	//if traveling along a curve
 	if(curve!=0){
 		float r = abs(1/curve);
@@ -309,14 +331,17 @@ float ShortestPathOD(float curve){
 		
 		//calculate inner and outer radii of turning using vehicle geometry
 		float innerRad = r - w/2;
-		float outerRad = sqrt(pow(r+w/2,2)+pow(l,2));
+		float outerRad = sqrt(pow(r+vw/2,2)+pow(vl,2));
 		
 		//reference vector to center of rotation
 		const Vector2f centerRef(0,rSign*r); 
 
 		// corner of car calcs
-		const Vector2f k(l,rSign*w/2); //reference vector for the front inside corner of car
+		const Vector2f k(vl,rSign*vw/2); //reference vector for the front inside corner of car
 		float kRad = dist(centerRef,k);// radius of this corner
+		const Vector2f t(vl,rSign*(vw/2+maxC));
+		float tRad = dist(centerRef,t); // 
+		float tAngle = getScanAngle(t,r,tRad);
 
 		//vars
 		float pointRad = 0; //radius that an obstacle point makes with centerRef
@@ -342,11 +367,11 @@ float ShortestPathOD(float curve){
 				//depending on the obstacles radius, account for angle created between baselink and point of intersection with the vehicle
 				if (pointRad <= kRad){
 					
-					angle_offset = acos((r-w/2)/pointRad);
+					angle_offset = acos((r-vw/2)/pointRad);
 					
 				}
 				else{
-					angle_offset = asin(l/pointRad);
+					angle_offset = asin(vl/pointRad);
 				}
 
 				//subtract this offset
@@ -360,8 +385,8 @@ float ShortestPathOD(float curve){
 				}
 				
 				//graph relevant points 
-				const Vector2f relPoint(points.at(i).x()*cos(actualAngle)-points.at(i).y()*sin(actualAngle)+actualLocation.x(),points.at(i).y()*cos(actualAngle)+points.at(i).x()*sin(actualAngle)+actualLocation.y());
-				DrawPoint(relPoint, 0x6A0DAD, local_viz_msg_);
+				//const Vector2f relPoint(points.at(i).x()*cos(actualAngle)-points.at(i).y()*sin(actualAngle)+actualLocation.x(),points.at(i).y()*cos(actualAngle)+points.at(i).x()*sin(actualAngle)+actualLocation.y());
+				//DrawPoint(relPoint, 0x6A0DAD, local_viz_msg_);
 			
 			}
 		}
@@ -379,7 +404,52 @@ float ShortestPathOD(float curve){
 		//plotLinkArc(1/(innerRad), r, kAngle, 0x964B00);
 		plotObstArc(1/minPointRad*rSign, r, min_obst_angle, min_angle_offset,0x77fc03);
 		
-		return min_obst_angle * r;
+		//set minDist to the shortest path
+		minDist= min_obst_angle * r;
+		
+		//CLEARANCE CALCULATION (CURVED) --------------------------------------------------------------
+		
+		
+		//define clearance radii
+		float innerClearRad = r - w/2-maxC;
+		float outerClearRad = sqrt(pow(r+vw/2+maxC,2)+pow(vl+maxC,2));
+		
+		//vars
+		float minClearRad = maxC;
+		float minClearAngle = min_obst_angle + tAngle;
+
+		
+		//now find the minimum clearance along this path
+		for(int i =0; i<cloudSize; i++){
+			
+			//calculate radius of point from center of rotation
+			pointRad = dist(points.at(i),centerRef);
+
+			if((pointRad > outerRad)&&(pointRad <=outerClearRad)){
+				float phi = getScanAngle(points.at(i),r,pointRad);
+				if(((min_obst_angle+tAngle)>=phi)&&(pointRad - outerRad < minClearance)){
+					minClearance = pointRad - outerRad;
+					minClearRad = pointRad;
+					minClearAngle = phi;
+				}
+				//const Vector2f relPoint(points.at(i).x()*cos(actualAngle)-points.at(i).y()*sin(actualAngle)+actualLocation.x(),points.at(i).y()*cos(actualAngle)+points.at(i).x()*sin(actualAngle)+actualLocation.y());
+				//DrawPoint(relPoint, 0x80020, local_viz_msg_);
+			} 
+			else if((pointRad < innerRad)&&(pointRad >= innerClearRad)){
+				float phi = getScanAngle(points.at(i),r,pointRad);
+				if(((min_obst_angle)>=phi)&&(innerRad - pointRad < minClearance)){
+					minClearance = innerRad - pointRad;
+					minClearRad = pointRad;
+					minClearAngle = phi;
+				}
+				//const Vector2f relPoint(points.at(i).x()*cos(actualAngle)-points.at(i).y()*sin(actualAngle)+actualLocation.x(),points.at(i).y()*cos(actualAngle)+points.at(i).x()*sin(actualAngle)+actualLocation.y());
+				//DrawPoint(relPoint, 0x80020, local_viz_msg_);
+			}
+			
+		}
+
+		phiHolder=minClearAngle;
+		plotLinkArc(1/minClearRad*rSign,r, phiHolder, 0x77fc03);
 	
 	}
 	//if traveling in a straight line
@@ -395,9 +465,9 @@ float ShortestPathOD(float curve){
 			xCord = points.at(i).x();
 			yCord = points.at(i).y();
 		
-			if(abs(yCord) <= w/2){
-				const Vector2f relPoint(xCord*cos(actualAngle)-yCord*sin(actualAngle)+actualLocation.x(),yCord*cos(actualAngle)+xCord*sin(actualAngle)+actualLocation.y());
-				DrawPoint(relPoint, 0x6A0DAD, local_viz_msg_);
+			if(abs(yCord) <= vw/2){
+				//const Vector2f relPoint(xCord*cos(actualAngle)-yCord*sin(actualAngle)+actualLocation.x(),yCord*cos(actualAngle)+xCord*sin(actualAngle)+actualLocation.y());
+				//DrawPoint(relPoint, 0x6A0DAD, local_viz_msg_);
 				if(xCord<min_dist){
 					min_dist = xCord;
 					min_y = yCord;
@@ -407,22 +477,58 @@ float ShortestPathOD(float curve){
 			
 		}
 		const Vector2f minPoint(min_dist*cos(actualAngle)-min_y*sin(actualAngle)+actualLocation.x(),min_y*cos(actualAngle)+min_dist*sin(actualAngle)+actualLocation.y());
-		const Vector2f relEdge(actualLocation.x() + l*sin(actualAngle),actualLocation.y() + cos(actualAngle));
-		///fix this ^^^^^^
-		DrawLine(minPoint,relEdge, 0x77fc03,local_viz_msg_);
-		return min_dist-l;
-		
-	}
+		//const Vector2f relEdge(actualLocation.x() + vl*cos(actualAngle)-min_y*sin(actualAngle),actualLocation.y() + vl* sin(actualAngle)+min_y*cos(actualAngle));
+		//DrawLine(minPoint,relEdge, 0x77fc03,local_viz_msg_);
+		minDist= min_dist-vl;
 	
+		//CLEARANCE CACULATION (STRAIGHT)
+		float minClearDist= min_dist+vl;
+		float minClearRad = 0;
+		for(int i =0; i<cloudSize; i++){
+			
+			xCord = points.at(i).x();
+			yCord = points.at(i).y();
+			
+			if(xCord <=0){
+				continue;
+			}
+			if((yCord > vw/2 )&& (yCord <=vw/2 +maxC)){
+				if(xCord < minClearDist){
+					minClearDist = xCord;
+					minClearRad = yCord;
+				}
+				const Vector2f relPoint(xCord*cos(actualAngle)-yCord*sin(actualAngle)+actualLocation.x(),yCord*cos(actualAngle)+xCord*sin(actualAngle)+actualLocation.y());
+				DrawPoint(relPoint, 0x6A0DAD, local_viz_msg_);
+			}
+			else if((yCord < -vw/2)&&(yCord >= -vw/2 - maxC)){
+				if(xCord < minClearDist){
+					minClearDist = xCord;
+					minClearRad = yCord;
+				}
+				const Vector2f relPoint(xCord*cos(actualAngle)-yCord*sin(actualAngle)+actualLocation.x(),yCord*cos(actualAngle)+xCord*sin(actualAngle)+actualLocation.y());
+				DrawPoint(relPoint, 0x6A0DAD, local_viz_msg_);
+			}
+		}
+			
+		const Vector2f blEdge(-minClearRad*sin(actualAngle)+actualLocation.x(),-minClearRad*cos(actualAngle)+actualLocation.y());
+		const Vector2f clearObst(-minClearRad*sin(actualAngle)+minClearDist*cos(actualAngle)+actualLocation.x(),-minClearRad*cos(actualAngle)+minClearDist*sin(actualAngle)+actualLocation.y());
+		DrawLine(blEdge,clearObst, 0x77fc03,local_viz_msg_);
+		//^^^fix this 
+			
+	}
+	ROS_INFO("minClearanceeES: %f, phi: %f",minClearance,phiHolder);
+	r[0] = minDist;
+	r[1] = minClearance;
+	
+	return r;
 }
 	
 //MAIN -------------------------------------------------------------------------------------------------
 void Navigation::Run() {
 
 	//set curvature
-    drive_msg_.curvature = 0.0;
-	
-	
+    drive_msg_.curvature = -0.0;
+	//gather speed information
 	float velMag = mag(robot_vel_);
 
 	//initialize 
@@ -435,33 +541,23 @@ void Navigation::Run() {
     } 
      
 	 
-	//detect and drive up to obstacle
-	distLeft = ShortestPathOD(drive_msg_.curvature);
+	//find shortest path for given curvature
+	float *odVars;
+	odVars = ShortestPathOD(drive_msg_.curvature);
+	float distLeft = *(odVars); //shortest path returned from OD function
+	//float clearance = *(odVars+1);
+	//perform time optimal control given this path and current velocity
 	TOC(distLeft,velMag);
    
+   
     //output information on console
-
-    ROS_INFO("Distance Traveled: %f",s);
 	ROS_INFO("Distance Left: %f",distLeft);
     ROS_INFO("--------------");
     drive_pub_.publish(drive_msg_);
 	
-    //draw the curve or line that the bot is following
 
-	//plot remaining path to traverse
-	/*
-	if(drive_msg_.curvature !=0){
-		float angle_diff = (distLeft)/r;
-		plotLinkArc(drive_msg_.curvature, angle_diff, 0x77fc03, 0);
-	}
-	//if moving in a straight line
-	else{
-		const Vector2f end(actualLocation.x() + distLeft*cos(actualAngle),actualLocation.y() + distLeft*sin(actualAngle));
-		DrawLine(actualLocation, end, 0x77fc03,local_viz_msg_);
-	}*/
-
-	//draw the actual bot
-	plotCar(0x0000ff);
+	//plot the bot
+	plotCar(0x0000ff,0xff0000);
 	viz_pub_.publish(local_viz_msg_);
 	ClearVisualizationMsg(local_viz_msg_);
 
