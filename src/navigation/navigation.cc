@@ -182,6 +182,18 @@ float dist(const Vector2f& vect1, const Vector2f& vect2){
 	return mag(vectDist);
 }
 
+int getMaxIndex(float arr[30]){
+	float max = 0;
+	float index = 0;
+	for(int i = 0; i < 30; i++){
+		if(arr[i]>max){
+			max = arr[i];
+			index = i;
+		}
+	}
+	return index;
+}
+
 //return angle of isoseles triangle using vector start and end (the two that have same angle in a isoseles)
 //and their radius to the 3rd point
 float isosGetAngle(const Vector2f& start, const Vector2f& end,float obstR){
@@ -192,7 +204,7 @@ float isosGetAngle(const Vector2f& start, const Vector2f& end,float obstR){
 
 
 //returns angle between reference vector obst and origin using baselink radius and point radius 
-float getScanAngle(const Vector2f& obst, float baseLinkr, float pointRad){
+float getScanAngle(const Vector2f& obst, float baseLinkr){
 	
 	if(rSign == 1){
 		if(obst.x() <0){
@@ -212,6 +224,14 @@ float getScanAngle(const Vector2f& obst, float baseLinkr, float pointRad){
 	}
 	
 }
+
+/*
+float getCurveX(float curve, float dist){
+	return sin(dist*curve)/curve;
+}
+float getCurveY(float curve, float dist){
+	return cos(dist*curve)/curve
+} */
 
 //PLOTTER FUNCTIONS----------------------------------------------------
 
@@ -235,8 +255,8 @@ void plotLinkArc(float curve, float rCent, float angle_diff,int color){
 void plotObstArc(float curve, float rCent, float ang_dist,float ang_offset,int color){
 	
 	float rad=abs(1/curve); 
-	float rSign = 1;
-	if (curve<0){rSign = -1;}
+	//float rSign = 1;
+	//if (curve<0){rSign = -1;}
 	const Vector2f center(actualLocation.x() - rSign*rCent*sin(actualAngle),actualLocation.y() + rSign*rCent*cos(actualAngle));
 	float start_angle = atan2(actualLocation.y()-center.y(),actualLocation.x()-center.x());
 
@@ -311,26 +331,31 @@ void TOC(float dist, float velMag){
 
 //OBSTACLE DETECTION -------------------------------------------------------------
 
-float * ShortestPathOD(float curve){
+float * ShortestPathOD(float curve,bool plot){
 	
 	//# of points in scan
 	int cloudSize = points.size(); 
 	
 	//create return structure
-	static float r[2];
+	static float r[4];
+	r[0] = 0;
+	r[1] = 0;
+	r[2] = 0;
+	r[3] = 0;
 	float minDist = 0;
 	float minClearance = maxC;
-	float phiHolder = 0;
+	float FPLx = 0;
+	float FPLy = 0;
 	
 	//if traveling along a curve
 	if(curve!=0){
 		float r = abs(1/curve);
 		
 		//used to compensate for negative curvature (right turns)
-		if(curve <0 ){ rSign = -1;}
+		if(curve <0 ){ rSign = -1;}else{rSign = 1;}
 		
 		//calculate inner and outer radii of turning using vehicle geometry
-		float innerRad = r - w/2;
+		float innerRad = r - vw/2;
 		float outerRad = sqrt(pow(r+vw/2,2)+pow(vl,2));
 		
 		//reference vector to center of rotation
@@ -339,9 +364,10 @@ float * ShortestPathOD(float curve){
 		// corner of car calcs
 		const Vector2f k(vl,rSign*vw/2); //reference vector for the front inside corner of car
 		float kRad = dist(centerRef,k);// radius of this corner
+		//float kAngle = getScanAngle(k,r);
 		const Vector2f t(vl,rSign*(vw/2+maxC));
-		float tRad = dist(centerRef,t); // 
-		float tAngle = getScanAngle(t,r,tRad);
+		//float tRad = dist(centerRef,t); // 
+		//float tAngle = getScanAngle(t,r);
 
 		//vars
 		float pointRad = 0; //radius that an obstacle point makes with centerRef
@@ -349,9 +375,9 @@ float * ShortestPathOD(float curve){
 		float raw_obst_angle = 0;
 		
 		//vars for holding shortest path properties
-		float min_obst_angle = 10.0; //shortest path in the scan array in [rads]
-		float minPointRad = 0; //the radius at which this shortest path occured
-		float min_angle_offset = 0;//offset for shortest path (for plotting)
+		float min_obst_angle = 2*M_PI; //shortest path in the scan array in [rads]
+		float minPointRad = r; //the radius at which this shortest path occured
+		float min_angle_offset = asin(vl/r);//offset for shortest path (for plotting)
 		
 		for(int i =0; i<cloudSize; i++){
 			
@@ -362,7 +388,7 @@ float * ShortestPathOD(float curve){
 			if((pointRad >= innerRad)&&(pointRad<= outerRad)){
 				
 				//find the angle between baselink and obstacle about center of rotation
-				raw_obst_angle = getScanAngle(points.at(i),r,pointRad);
+				raw_obst_angle = getScanAngle(points.at(i),r);
 				
 				//depending on the obstacles radius, account for angle created between baselink and point of intersection with the vehicle
 				if (pointRad <= kRad){
@@ -382,6 +408,9 @@ float * ShortestPathOD(float curve){
 					min_obst_angle = adj_obst_angle;
 					minPointRad = pointRad;
 					min_angle_offset = angle_offset;
+					const Vector2f relPoint(points.at(i).x()*cos(actualAngle)-points.at(i).y()*sin(actualAngle)+actualLocation.x(),points.at(i).y()*cos(actualAngle)+points.at(i).x()*sin(actualAngle)+actualLocation.y());
+					FPLx = relPoint.x();
+					FPLy = relPoint.y();
 				}
 				
 				//graph relevant points 
@@ -402,54 +431,67 @@ float * ShortestPathOD(float curve){
 		//plotLinkArc(1/outerRad, r, tAngle, 0xFFC0CB);
 		//plotLinkArc(1/(kRad), r, kAngle, 0x964B00);
 		//plotLinkArc(1/(innerRad), r, kAngle, 0x964B00);
-		plotObstArc(1/minPointRad*rSign, r, min_obst_angle, min_angle_offset,0x77fc03);
+		if(plot){
+			plotObstArc(1/minPointRad*rSign, r, min_obst_angle, min_angle_offset,0x77fc03);
+		}
 		
 		//set minDist to the shortest path
 		minDist= min_obst_angle * r;
 		
-		//CLEARANCE CALCULATION (CURVED) --------------------------------------------------------------
 		
+		//CLEARANCE CALCULATION (CURVED) --------------------------------------------------------------
 		
 		//define clearance radii
 		float innerClearRad = r - w/2-maxC;
 		float outerClearRad = sqrt(pow(r+vw/2+maxC,2)+pow(vl+maxC,2));
-		
+		//ROS_INFO("innerClearRad: %f, outerClearRad: %f",innerClearRad, outerClearRad);
 		//vars
-		float minClearRad = maxC;
-		float minClearAngle = min_obst_angle + tAngle;
-
+		minClearance = maxC;
+		//float minClearRad = maxC;
+		//float minClearAngle = min_obst_angle + tAngle;
+		float threshold = 5; //how many meters ahead we care about
+		float thresholdAngle = threshold / r;
+		if(thresholdAngle > min_obst_angle){
+			thresholdAngle = min_obst_angle;
+		}
+		
 		
 		//now find the minimum clearance along this path
 		for(int i =0; i<cloudSize; i++){
-			
+
 			//calculate radius of point from center of rotation
 			pointRad = dist(points.at(i),centerRef);
 
+
 			if((pointRad > outerRad)&&(pointRad <=outerClearRad)){
-				float phi = getScanAngle(points.at(i),r,pointRad);
-				if(((min_obst_angle+tAngle)>=phi)&&(pointRad - outerRad < minClearance)){
+				float phi = getScanAngle(points.at(i),r);
+				if((thresholdAngle>=phi)&&(pointRad - outerRad < minClearance)){
+				//if((minDist > phi * pointRad)&&(pointRad - outerRad < minClearance)){
 					minClearance = pointRad - outerRad;
-					minClearRad = pointRad;
-					minClearAngle = phi;
+					//minClearRad = pointRad;
+					//minClearAngle = phi;
 				}
 				//const Vector2f relPoint(points.at(i).x()*cos(actualAngle)-points.at(i).y()*sin(actualAngle)+actualLocation.x(),points.at(i).y()*cos(actualAngle)+points.at(i).x()*sin(actualAngle)+actualLocation.y());
 				//DrawPoint(relPoint, 0x80020, local_viz_msg_);
 			} 
 			else if((pointRad < innerRad)&&(pointRad >= innerClearRad)){
-				float phi = getScanAngle(points.at(i),r,pointRad);
-				if(((min_obst_angle)>=phi)&&(innerRad - pointRad < minClearance)){
+				float phi = getScanAngle(points.at(i),r);
+				if((thresholdAngle>=phi)&&(innerRad - pointRad < minClearance)){
+				//if((minDist > phi * pointRad)&&(innerRad - pointRad < minClearance)){
 					minClearance = innerRad - pointRad;
-					minClearRad = pointRad;
-					minClearAngle = phi;
+					//minClearRad = pointRad;
+					//minClearAngle = phi;
 				}
 				//const Vector2f relPoint(points.at(i).x()*cos(actualAngle)-points.at(i).y()*sin(actualAngle)+actualLocation.x(),points.at(i).y()*cos(actualAngle)+points.at(i).x()*sin(actualAngle)+actualLocation.y());
 				//DrawPoint(relPoint, 0x80020, local_viz_msg_);
 			}
-			
+			ROS_INFO("min_obst_angle: %f, minPointRad: %f, min_angle_offset: %f", min_obst_angle, minPointRad, min_angle_offset);
 		}
 
-		phiHolder=minClearAngle;
-		plotLinkArc(1/minClearRad*rSign,r, phiHolder, 0x77fc03);
+	//if(plot){
+		//plotLinkArc(1/minClearRad*rSign,r, minClearAngle, 0x77fc03);
+	//}
+		
 	
 	}
 	//if traveling in a straight line
@@ -476,9 +518,11 @@ float * ShortestPathOD(float curve){
 			}
 			
 		}
-		const Vector2f minPoint(min_dist*cos(actualAngle)-min_y*sin(actualAngle)+actualLocation.x(),min_y*cos(actualAngle)+min_dist*sin(actualAngle)+actualLocation.y());
-		//const Vector2f relEdge(actualLocation.x() + vl*cos(actualAngle)-min_y*sin(actualAngle),actualLocation.y() + vl* sin(actualAngle)+min_y*cos(actualAngle));
-		//DrawLine(minPoint,relEdge, 0x77fc03,local_viz_msg_);
+		if(plot){
+			const Vector2f minPoint(min_dist*cos(actualAngle)-min_y*sin(actualAngle)+actualLocation.x(),min_y*cos(actualAngle)+min_dist*sin(actualAngle)+actualLocation.y());
+			const Vector2f relEdge(actualLocation.x() + vl*cos(actualAngle)-min_y*sin(actualAngle),actualLocation.y() + vl* sin(actualAngle)+min_y*cos(actualAngle));
+			DrawLine(minPoint,relEdge, 0x77fc03,local_viz_msg_);
+		}
 		minDist= min_dist-vl;
 	
 		//CLEARANCE CACULATION (STRAIGHT)
@@ -492,33 +536,33 @@ float * ShortestPathOD(float curve){
 			if(xCord <=0){
 				continue;
 			}
-			if((yCord > vw/2 )&& (yCord <=vw/2 +maxC)){
+			if((abs(yCord) > vw/2 )&& (abs(yCord) <=vw/2 +maxC)){
 				if(xCord < minClearDist){
 					minClearDist = xCord;
 					minClearRad = yCord;
 				}
-				const Vector2f relPoint(xCord*cos(actualAngle)-yCord*sin(actualAngle)+actualLocation.x(),yCord*cos(actualAngle)+xCord*sin(actualAngle)+actualLocation.y());
-				DrawPoint(relPoint, 0x6A0DAD, local_viz_msg_);
-			}
-			else if((yCord < -vw/2)&&(yCord >= -vw/2 - maxC)){
-				if(xCord < minClearDist){
-					minClearDist = xCord;
-					minClearRad = yCord;
-				}
-				const Vector2f relPoint(xCord*cos(actualAngle)-yCord*sin(actualAngle)+actualLocation.x(),yCord*cos(actualAngle)+xCord*sin(actualAngle)+actualLocation.y());
-				DrawPoint(relPoint, 0x6A0DAD, local_viz_msg_);
+				//const Vector2f relPoint(xCord*cos(actualAngle)-yCord*sin(actualAngle)+actualLocation.x(),yCord*cos(actualAngle)+xCord*sin(actualAngle)+actualLocation.y());
+				//DrawPoint(relPoint, 0x6A0DAD, local_viz_msg_);
 			}
 		}
-			
-		const Vector2f blEdge(-minClearRad*sin(actualAngle)+actualLocation.x(),-minClearRad*cos(actualAngle)+actualLocation.y());
-		const Vector2f clearObst(-minClearRad*sin(actualAngle)+minClearDist*cos(actualAngle)+actualLocation.x(),-minClearRad*cos(actualAngle)+minClearDist*sin(actualAngle)+actualLocation.y());
-		DrawLine(blEdge,clearObst, 0x77fc03,local_viz_msg_);
-		//^^^fix this 
+		if(minClearDist > 5){
+			minClearDist =0;
+			minClearRad = maxC;
+		}
+		
+		
+		//const Vector2f blEdge(-minClearRad*sin(actualAngle)+actualLocation.x(),minClearRad*cos(actualAngle)+actualLocation.y());
+		//const Vector2f clearObst(minClearDist*cos(actualAngle)-minClearRad*sin(actualAngle)+actualLocation.x(),minClearRad*cos(actualAngle)+minClearDist*sin(actualAngle)+actualLocation.y());
+		//DrawLine(blEdge,clearObst, 0x77fc03,local_viz_msg_);
+		minClearance = abs(minClearRad);
 			
 	}
-	ROS_INFO("minClearanceeES: %f, phi: %f",minClearance,phiHolder);
+	
+	
 	r[0] = minDist;
 	r[1] = minClearance;
+	r[2] = FPLx;
+	r[3] = FPLy;
 	
 	return r;
 }
@@ -527,7 +571,9 @@ float * ShortestPathOD(float curve){
 void Navigation::Run() {
 
 	//set curvature
-    drive_msg_.curvature = -0.0;
+    //drive_msg_.curvature = .05;
+
+		
 	//gather speed information
 	float velMag = mag(robot_vel_);
 
@@ -540,25 +586,88 @@ void Navigation::Run() {
 		ROS_INFO("initializing starting odometry");
     } 
      
-	 
-	//find shortest path for given curvature
-	float *odVars;
-	odVars = ShortestPathOD(drive_msg_.curvature);
-	float distLeft = *(odVars); //shortest path returned from OD function
-	//float clearance = *(odVars+1);
+	
+	//find longest free path for given curvature
+
 	//perform time optimal control given this path and current velocity
-	TOC(distLeft,velMag);
+	
+	
+	
+	static float curves[30];
+	static float score[30];
+	static vector<Vector2f> FPL_cloud;
+	FPL_cloud.clear();
+	float A = 3;
+	float B = 1;
+	float C = 0;
+	
+	int count = 0;
+	float i = 1.05;
+	float plotCurvature = 0;
+	while(i < 1.9){
+		if(count%2 == 0){
+			plotCurvature = i - 1;
+			i = i * 1.05;
+		} else{
+			plotCurvature = -(i-1);
+		}
+		//find longest free path for given curvature
+		float *odVars;
+
+		odVars = ShortestPathOD(plotCurvature,false);
+
+		const Vector2f point(*(odVars+2),*(odVars+3));
+		FPL_cloud.push_back(point);
+		float FPL = *(odVars);
+		float clearance = *(odVars+1);
+
+		float goalDist = dist(point, nav_goal_loc_);
+		score[count] = A*FPL+B*clearance+C*goalDist;
+		curves[count] = plotCurvature;
+		count++;
+	}
+	int maxIndex = getMaxIndex(score);
+	//ROS_INFO("index: %i, score: %f",maxIndex, score[maxIndex]);
+	//ROS_INFO("curve: %f", curves[maxIndex]);
+	DrawPoint(FPL_cloud.at(maxIndex),0x000000, local_viz_msg_);
+	drive_msg_.curvature = curves[maxIndex];
+	float *odDrive;
+	odDrive = ShortestPathOD(drive_msg_.curvature,true);
+	
+	TOC(*(odDrive),velMag);
+	//ROS_INFO("FPL[0]: %f CLEAR[0]: %f",FPL[0], clearances[0]);
+	
+	/*
+	drive_msg_.curvature = -.5;
+	float *odDrive;
+	odDrive = ShortestPathOD(drive_msg_.curvature,true);
+	TOC(*(odDrive),velMag);
+	*/
+	
+	
+	//visualization of possible paths
+	/*
+	float i = 1.05;
+	float plotDist = 5;
+	while(i < 1.9){
+		float plotCurvature1 = i - 1;
+		float plotCurvature2 = -plotCurvature1;
+		i = i * 1.05;
+		plotLinkArc(plotCurvature1,1/plotCurvature1, abs(plotDist*plotCurvature1), 0x77fc03);
+		plotLinkArc(plotCurvature2,1/plotCurvature2, abs(plotDist*plotCurvature2), 0x77fc03);
+	}
+	const Vector2f bl(actualLocation.x(),actualLocation.y());
+	const Vector2f end(actualLocation.x() + plotDist*cos(actualAngle),actualLocation.y() + plotDist*sin(actualAngle));
+	DrawLine(bl,end, 0x77fc03,local_viz_msg_);
+	*/
    
-   
-    //output information on console
-	ROS_INFO("Distance Left: %f",distLeft);
-    ROS_INFO("--------------");
-    drive_pub_.publish(drive_msg_);
+    
 	
 
 	//plot the bot
 	plotCar(0x0000ff,0xff0000);
 	viz_pub_.publish(local_viz_msg_);
+	drive_pub_.publish(drive_msg_);
 	ClearVisualizationMsg(local_viz_msg_);
 
 }  // namespace navigation
