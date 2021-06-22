@@ -92,9 +92,12 @@ Navigation::Navigation(const string& map_file, ros::NodeHandle* n) :
     
 }
 
-
+float goalAngle = 0;
+static Vector2f goalLocation(0,0);
 
 void Navigation::SetNavGoal(const Vector2f& loc, float angle) {
+	goalAngle = angle;
+	goalLocation = loc;
     nav_goal_loc_ = loc;
     nav_goal_angle_ = angle;
 }
@@ -338,14 +341,11 @@ float * ShortestPathOD(float curve,bool plot){
 	
 	//create return structure
 	static float r[4];
-	r[0] = 0;
-	r[1] = 0;
-	r[2] = 0;
-	r[3] = 0;
+
 	float minDist = 0;
 	float minClearance = maxC;
-	float FPLx = 0;
-	float FPLy = 0;
+	float FPLx = actualLocation.x();
+	float FPLy = actualLocation.y();
 	
 	//if traveling along a curve
 	if(curve!=0){
@@ -364,7 +364,7 @@ float * ShortestPathOD(float curve,bool plot){
 		// corner of car calcs
 		const Vector2f k(vl,rSign*vw/2); //reference vector for the front inside corner of car
 		float kRad = dist(centerRef,k);// radius of this corner
-		//float kAngle = getScanAngle(k,r);
+		float kAngle = getScanAngle(k,r);
 		const Vector2f t(vl,rSign*(vw/2+maxC));
 		//float tRad = dist(centerRef,t); // 
 		//float tAngle = getScanAngle(t,r);
@@ -411,12 +411,35 @@ float * ShortestPathOD(float curve,bool plot){
 					const Vector2f relPoint(points.at(i).x()*cos(actualAngle)-points.at(i).y()*sin(actualAngle)+actualLocation.x(),points.at(i).y()*cos(actualAngle)+points.at(i).x()*sin(actualAngle)+actualLocation.y());
 					FPLx = relPoint.x();
 					FPLy = relPoint.y();
+					
 				}
 				
 				//graph relevant points 
 				//const Vector2f relPoint(points.at(i).x()*cos(actualAngle)-points.at(i).y()*sin(actualAngle)+actualLocation.x(),points.at(i).y()*cos(actualAngle)+points.at(i).x()*sin(actualAngle)+actualLocation.y());
 				//DrawPoint(relPoint, 0x6A0DAD, local_viz_msg_);
 			
+			}
+			if(pointRad <innerRad){
+				//find the angle between baselink and obstacle about center of rotation
+				
+
+				raw_obst_angle = 2* atan2(abs(points.at(i).y()),points.at(i).x());
+				
+				
+				angle_offset = kAngle;
+				float adj_obst_angle = raw_obst_angle - angle_offset;
+				
+				//record shortest path and its parameters
+				if(adj_obst_angle < min_obst_angle){
+					min_obst_angle = adj_obst_angle;
+					minPointRad = kRad;
+					min_angle_offset = angle_offset;
+					const Vector2f relPoint(points.at(i).x()*cos(actualAngle)-points.at(i).y()*sin(actualAngle)+actualLocation.x(),points.at(i).y()*cos(actualAngle)+points.at(i).x()*sin(actualAngle)+actualLocation.y());
+					FPLx = relPoint.x();
+					FPLy = relPoint.y();
+					
+				}
+
 			}
 		}
 
@@ -485,7 +508,7 @@ float * ShortestPathOD(float curve,bool plot){
 				//const Vector2f relPoint(points.at(i).x()*cos(actualAngle)-points.at(i).y()*sin(actualAngle)+actualLocation.x(),points.at(i).y()*cos(actualAngle)+points.at(i).x()*sin(actualAngle)+actualLocation.y());
 				//DrawPoint(relPoint, 0x80020, local_viz_msg_);
 			}
-			ROS_INFO("min_obst_angle: %f, minPointRad: %f, min_angle_offset: %f", min_obst_angle, minPointRad, min_angle_offset);
+			//ROS_INFO("min_obst_angle: %f, minPointRad: %f, min_angle_offset: %f", min_obst_angle, minPointRad, min_angle_offset);
 		}
 
 	//if(plot){
@@ -563,16 +586,75 @@ float * ShortestPathOD(float curve,bool plot){
 	r[1] = minClearance;
 	r[2] = FPLx;
 	r[3] = FPLy;
+
 	
 	return r;
 }
+
+//SCORING FUNCTION--------------------------------------------------------
+float * score(){
+	static float scoreArr[2];
+	
+	static float curves[30];
+	static float score[30];
+	static float clearances[30];
+	static float FPLs[30];
+	static float goalDists[30];
+	static vector<Vector2f> FPL_cloud;
+	FPL_cloud.clear();
+	float A = 1;
+	float B = 0;
+	float C = 1;
+	
+	int count = 0;
+	float i = 1.05;
+	float plotCurvature = 0;
+	while(i < 1.9){
+		if(count%2 == 0){
+			plotCurvature = i - 1;
+			i = i * 1.02;
+		} else{
+			plotCurvature = -(i-1);
+		}
+		//find longest free path for given curvature
+		float *odVars;
+		odVars = ShortestPathOD(plotCurvature,false);
+		
+		//find end path position, path length, goal distance from end path position
+		const Vector2f point(*(odVars+2),*(odVars+3));
+		FPL_cloud.push_back(point);
+		float FPL = *(odVars);
+		float clearance = *(odVars+1);
+		float goalDist = dist(point, goalLocation);
+		
+		clearances[count] = clearance ;
+		FPLs[count] = FPL;
+		goalDists[count] = goalDist;
+		score[count] = A*FPL+B*clearance+C*goalDist;
+		curves[count] = plotCurvature;
+		
+		count++;
+	}
+	int maxIndex = getMaxIndex(score);
+	
+	ROS_INFO("goalLocation: %f x %f y",goalLocation.x(),goalLocation.y());
+	ROS_INFO("endPoint Loc: %f x %f y",FPL_cloud.at(maxIndex).x(),FPL_cloud.at(maxIndex).y());
+	//ROS_INFO("endPoint Loc: %f x %f y",actualLocation.x(),actualLocation.y());
+	ROS_INFO("score: %f", score[maxIndex]);
+	ROS_INFO("A*FPL: %f B*clear: %f, C*gd: %f", FPLs[maxIndex]*A, clearances[maxIndex]*B, goalDists[maxIndex]*C);
+
+	//for graphing
+	DrawPoint(FPL_cloud.at(maxIndex),0x000000, local_viz_msg_);
+	float *odVars;
+	odVars = ShortestPathOD(curves[maxIndex],true);
+	scoreArr[0] = *(odVars);
+	scoreArr[1] = curves[maxIndex];
+	return scoreArr;
+}
+	
 	
 //MAIN -------------------------------------------------------------------------------------------------
 void Navigation::Run() {
-
-	//set curvature
-    //drive_msg_.curvature = .05;
-
 		
 	//gather speed information
 	float velMag = mag(robot_vel_);
@@ -587,55 +669,12 @@ void Navigation::Run() {
     } 
      
 	
-	//find longest free path for given curvature
-
-	//perform time optimal control given this path and current velocity
 	
+	float *scoreVars;
+	scoreVars = score();
+	drive_msg_.curvature = *(scoreVars+1);
+	TOC(*(scoreVars),velMag);
 	
-	
-	static float curves[30];
-	static float score[30];
-	static vector<Vector2f> FPL_cloud;
-	FPL_cloud.clear();
-	float A = 3;
-	float B = 1;
-	float C = 0;
-	
-	int count = 0;
-	float i = 1.05;
-	float plotCurvature = 0;
-	while(i < 1.9){
-		if(count%2 == 0){
-			plotCurvature = i - 1;
-			i = i * 1.05;
-		} else{
-			plotCurvature = -(i-1);
-		}
-		//find longest free path for given curvature
-		float *odVars;
-
-		odVars = ShortestPathOD(plotCurvature,false);
-
-		const Vector2f point(*(odVars+2),*(odVars+3));
-		FPL_cloud.push_back(point);
-		float FPL = *(odVars);
-		float clearance = *(odVars+1);
-
-		float goalDist = dist(point, nav_goal_loc_);
-		score[count] = A*FPL+B*clearance+C*goalDist;
-		curves[count] = plotCurvature;
-		count++;
-	}
-	int maxIndex = getMaxIndex(score);
-	//ROS_INFO("index: %i, score: %f",maxIndex, score[maxIndex]);
-	//ROS_INFO("curve: %f", curves[maxIndex]);
-	DrawPoint(FPL_cloud.at(maxIndex),0x000000, local_viz_msg_);
-	drive_msg_.curvature = curves[maxIndex];
-	float *odDrive;
-	odDrive = ShortestPathOD(drive_msg_.curvature,true);
-	
-	TOC(*(odDrive),velMag);
-	//ROS_INFO("FPL[0]: %f CLEAR[0]: %f",FPL[0], clearances[0]);
 	
 	/*
 	drive_msg_.curvature = -.5;
@@ -665,7 +704,9 @@ void Navigation::Run() {
 	
 
 	//plot the bot
+	
 	plotCar(0x0000ff,0xff0000);
+	DrawCross(nav_goal_loc_, .1, 0xFF00FF,local_viz_msg_);
 	viz_pub_.publish(local_viz_msg_);
 	drive_pub_.publish(drive_msg_);
 	ClearVisualizationMsg(local_viz_msg_);
