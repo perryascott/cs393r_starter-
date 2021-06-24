@@ -90,6 +90,8 @@ class Navigation {
   Eigen::Vector2f nav_goal_loc_;
   // Navigation goal angle.
   float nav_goal_angle_;
+  // time
+  float time_;
 };
 
 }  // namespace navigation
