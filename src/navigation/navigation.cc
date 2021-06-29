@@ -252,7 +252,7 @@ float * getScanVector(float angle, float rad){
 void plotLinkArc(float curve, float rCent, float angle_diff,int color){
 	
 	float rad=abs(1/curve);
-	
+	if(curve <0 ){ rSign = -1;}else{rSign = 1;}
 	const Vector2f center(actualLocation.x() - rSign*rCent*sin(actualAngle),actualLocation.y() + rSign*rCent*cos(actualAngle));
 	float start_angle = atan2(actualLocation.y()-center.y(),actualLocation.x()-center.x());
 	if(curve<0){
@@ -714,7 +714,7 @@ float * refine( float roughCurve, float initFPL){
 	//float D = 0;
 	
 	int count = 0;
-	float j = 1.0025;
+	float j = 1.005;
 	float plotCurvature = 0;
 	float curveConvert = 0;
 	float plotDist = 5;
@@ -732,7 +732,9 @@ float * refine( float roughCurve, float initFPL){
 		if(plotCurvature == 0){
 			continue;
 		}
-		plotLinkArc(plotCurvature,1/plotCurvature, abs(plotDist*plotCurvature), 0x77fc03);
+		
+			plotLinkArc(plotCurvature,1/plotCurvature, plotDist*plotCurvature, 0x77fc03);
+		
 		//find longest free path for given curvature
 		float *odVars1;
 		odVars1 = ShortestPathOD(plotCurvature,false, 0);
