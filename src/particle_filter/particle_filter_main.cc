@@ -101,11 +101,13 @@ void InitializeMsgs() {
   vis_msg_ = visualization::NewVisualizationMessage("map", "particle_filter");
 }
 
+//these are particles of potential pose, not scans
 void PublishParticles() {
   vector<particle_filter::Particle> particles;
   particle_filter_.GetParticles(&particles);
   for (const particle_filter::Particle& p : particles) {
-    DrawParticle(p.loc, p.angle, vis_msg_);
+    //DrawParticle(p.loc, p.angle, vis_msg_);
+	DrawPoint(p.loc,0x00FF,vis_msg_);
   }
 }
 

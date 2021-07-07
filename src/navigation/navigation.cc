@@ -303,7 +303,22 @@ void plotCar(int color1,int color2){
 	DrawLine(fl,fr, color2,local_viz_msg_); 
 
 }
+/*
+void plotPossibleCurve(float curve, float rCent, float ang_dist,float ang_offset,int color){
+	
+	float rad=abs(1/curve); 
 
+	const Vector2f center(actualLocation.x() - rSign*rCent*sin(actualAngle),actualLocation.y() + rSign*rCent*cos(actualAngle));
+	float start_angle = atan2(actualLocation.y()-center.y(),actualLocation.x()-center.x());
+
+	if(curve<0){
+		DrawArc(center, rad ,start_angle - (ang_dist+ang_offset),start_angle - (ang_offset),color,local_viz_msg_) ;
+	}
+	else{
+		DrawArc(center, rad ,start_angle+(ang_offset),start_angle+(ang_dist+ang_offset),color,local_viz_msg_) ;
+	}  
+}
+*/
 //TIME OPTIMAL CONTROL ---------------------------------------------------
 
 void TOC(float dist, float velMag){
@@ -644,7 +659,7 @@ float * score(){
 	//FPL_cloud.clear();
 	
 	float A = 0;
-	float B = 0;
+	float B = 4;
 	float C = -5;
 	
 	int count = 0;
@@ -698,7 +713,7 @@ float * score(){
 	return scoreArr;
 }
 	
-float * refine( float roughCurve, float initFPL){
+float * refine( float roughCurve){
 	static float scoreArr1[2];
 	const int size = 100;
 	static float curves1[size];
@@ -709,7 +724,7 @@ float * refine( float roughCurve, float initFPL){
 	//static vector<Vector2f> FPL_cloud;
 	//FPL_cloud.clear();
 	float A = 0;
-	float B = 10;
+	float B = 1;
 	float C = 0;
 	//float D = 0;
 	
@@ -723,7 +738,6 @@ float * refine( float roughCurve, float initFPL){
 			curveConvert = j - 1;
 			j = j * 1.0025;
 			plotCurvature = roughCurve + curveConvert;
-
 		} else{
 			curveConvert = -(j-1);
 			plotCurvature = roughCurve + curveConvert;
@@ -733,7 +747,7 @@ float * refine( float roughCurve, float initFPL){
 			continue;
 		}
 		
-			plotLinkArc(plotCurvature,1/plotCurvature, plotDist*plotCurvature, 0x77fc03);
+			plotLinkArc(plotCurvature,abs(1/plotCurvature), abs(plotDist*plotCurvature), 0x77fc03);
 		
 		//find longest free path for given curvature
 		float *odVars1;
@@ -761,6 +775,7 @@ float * refine( float roughCurve, float initFPL){
 	//ROS_INFO("goalLocation: %f x %f y",goalLocation.x(),goalLocation.y());
 	//ROS_INFO("endPoint Loc: %f x %f y",FPL_cloud.at(maxIndex).x(),FPL_cloud.at(maxIndex).y());
 	//ROS_INFO("endPoint Loc: %f x %f y",actualLocation.x(),actualLocation.y());
+	ROS_INFO("clearance = %f",clearances1[maxIndex]);
 	if(-1==1){
 	ROS_INFO("refined score: %f", score1[maxIndex]);
 	ROS_INFO("refined: A*FPL: %f B*clear: %f, C*gd: %f", A*FPLs1[maxIndex], clearances1[maxIndex]*B, goalDists1[maxIndex]*C);
@@ -795,20 +810,20 @@ void Navigation::Run() {
 		float *scoreVars;
 		float *scoreVars2;
 		scoreVars = score();
-		scoreVars2 = refine(*(scoreVars+1),*(scoreVars));
+		scoreVars2 = refine(*(scoreVars+1));
 		drive_msg_.curvature = *(scoreVars2+1);
 		TOC(*(scoreVars2),velMag);
 		//green is refined path
 		
 		
 		/*
-		drive_msg_.curvature = -.5;
+		drive_msg_.curvature = .2;
 		float *odDrive;
 		odDrive = ShortestPathOD(drive_msg_.curvature,true,0x00AB22);
 		float FPL = *(odDrive);
 		float clearance = *(odDrive + 1);
 		TOC(*(odDrive),velMag);
-		ROS_INFO("FPL: %f, clearance: %f, endGoalDist: %f",FPL, clearance);
+		ROS_INFO("FPL: %f, clearance: %f",FPL, clearance);
 		*/
 	}
 	

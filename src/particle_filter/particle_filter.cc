@@ -26,6 +26,8 @@
 #include "eigen3/Eigen/Geometry"
 #include "gflags/gflags.h"
 #include "glog/logging.h"
+#include "ros/ros.h"
+
 #include "shared/math/geometry.h"
 #include "shared/math/line2d.h"
 #include "shared/math/math_util.h"
@@ -46,7 +48,11 @@ using Eigen::Vector2f;
 using Eigen::Vector2i;
 using vector_map::VectorMap;
 
+
 DEFINE_double(num_particles, 50, "Number of particles");
+
+//using namespace ros_helpers;
+
 
 namespace particle_filter {
 
@@ -56,6 +62,20 @@ ParticleFilter::ParticleFilter() :
     prev_odom_loc_(0, 0),
     prev_odom_angle_(0),
     odom_initialized_(false) {}
+
+//HELPER FUNCTIONS -----------------------------------------
+
+//return magnitude of vector 
+float mag(const Vector2f& vect){
+    return sqrt(pow(vect.x(),2) + pow(vect.y(),2));
+}
+
+//return distance between 2 vectors
+float dist(const Vector2f& vect1, const Vector2f& vect2){
+	const Vector2f vectDist(vect1.x()-vect2.x(),vect1.y()-vect2.y());
+	return mag(vectDist);
+}
+//------------------------------------------------------------------------
 
 void ParticleFilter::GetParticles(vector<Particle>* particles) const {
   *particles = particles_;
@@ -158,14 +178,56 @@ void ParticleFilter::ObserveOdometry(const Vector2f& odom_loc,
   // A new odometry value is available (in the odom frame)
   // Implement the motion model predict step here, to propagate the particles
   // forward based on odometry.
+	vector<Particle> new_particles;
+	
+	
+	//banana distribution values 
+	//float k1 = .04;
+	//float k2 = .04;
+	/*float k3 = 1;
+	float k4 = 1;*/
+	//float k5 = .2;
+	//float k6 = .2;
+	
+	
 
-
+	float k1 = .01;
+	float k2 = .01;
+	/*float k3 = 1;
+	float k4 = 1;*/
+	float k5 = .05;
+	float k6 = .05;
+	
+	float distance = dist(odom_loc,prev_odom_loc_);
+	float angleChange = abs(prev_odom_angle_ - odom_angle);
+	//const Vector2f pose1(1,2);
+	int n = 50;
+	for (int i=0; i<n;i++){
+		float x = rng_.Gaussian(distance, k1*distance + k2*angleChange);
+		//float y = 0;//rng_.Gaussian(0, k3*distance + k4*angleChange);
+		float ang = rng_.Gaussian(0, k5*distance + k6*angleChange);
+		//float theta = rng.Gaussian(prev_odom_angle, k
+		const Vector2f particlePose(x*cos(ang)+2,x*sin(ang));
+		Particle new_p = {
+			particlePose,
+			ang,
+			.05,
+		};
+		new_particles.push_back(new_p);
+		//ROS_INFO("angle bruh= %f",ang);
+	}
+ 
+	
+	prev_odom_loc_ = odom_loc;
+    prev_odom_angle_ = odom_angle;
+  particles_ = new_particles;
+ROS_INFO("odomx = %f odomy = %f angle = %f", odom_loc.x(), odom_loc.y(), odom_angle);
   // You will need to use the Gaussian random number generator provided. For
   // example, to generate a random number from a Gaussian with mean 0, and
   // standard deviation 2:
-  float x = rng_.Gaussian(0.0, 2.0);
-  printf("Random number drawn from Gaussian distribution with 0 mean and "
-         "standard deviation of 2 : %f\n", x);
+  //float x = rng_.Gaussian(0.0, 2.0);
+  //printf("Random number drawn from Gaussian distribution with 0 mean and "
+  //       "standard deviation of 2 : %f\n", x);
 }
 
 void ParticleFilter::Initialize(const string& map_file,
