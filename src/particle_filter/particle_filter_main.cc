@@ -107,19 +107,26 @@ void PublishParticles() {
   particle_filter_.GetParticles(&particles);
   for (const particle_filter::Particle& p : particles) {
     //DrawParticle(p.loc, p.angle, vis_msg_);
-	DrawPoint(p.loc,0x00FF,vis_msg_);
+	DrawPoint(p.loc,0x0000FF,vis_msg_);
   }
 }
 
 void PublishPredictedScan() {
-  const uint32_t kColor = 0xd67d00;
+  const uint32_t kColor = 0x800080;
   Vector2f robot_loc(0, 0);
   float robot_angle(0);
   particle_filter_.GetLocation(&robot_loc, &robot_angle);
   vector<Vector2f> predicted_scan;
+  
+  //testing purposes
+  const Vector2f testLoc(4,7);
+  float testAngle = M_PI/3;
+  
   particle_filter_.GetPredictedPointCloud(
-      robot_loc,
-      robot_angle,
+      //robot_loc,
+      //robot_angle,
+	  testLoc,
+	  testAngle,
       last_laser_msg_.ranges.size(),
       last_laser_msg_.range_min,
       last_laser_msg_.range_max,
@@ -202,11 +209,11 @@ void OdometryCallback(const nav_msgs::Odometry& msg) {
   localization_publisher_.publish(localization_msg);
   PublishVisualization();
 }
-
+ 
 void InitCallback(const amrl_msgs::Localization2DMsg& msg) {
   const Vector2f init_loc(msg.pose.x, msg.pose.y);
   const float init_angle = msg.pose.theta;
-  const string map = msg.map;
+  const string map = "maps/GDC2.txt"; //msg.map;
   printf("Initialize: %s (%f,%f) %f\u00b0\n",
          map.c_str(),
          init_loc.x(),

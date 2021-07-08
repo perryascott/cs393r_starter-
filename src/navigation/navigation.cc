@@ -133,9 +133,9 @@ void Navigation::ObservePointCloud(const vector<Vector2f>& cloud,
 
 
 //vehicle parameters
-float l = 0.5; //vehicle length
-float w = 0.28; //vehicle width
-float b = 0.4; //vehicle wheel base length
+float l = 0.5461; //vehicle length
+float w = 0.2794; //vehicle width
+float b = 0.3175; //vehicle wheel base length
 //float d = 0; //track width
 float m = 0.05; //obstacle safety margin
 float vl = l/2+b/2 + m; //the "virtual length" used for obstacle detection
@@ -408,7 +408,7 @@ float * ShortestPathOD(float curve,bool plot, int color){
 		
 		const Vector2f refGoal(goalLocation.x() - actualLocation.x(),goalLocation.y()-actualLocation.y());
 		const Vector2f turnedRefGoal(refGoal.y()*sin(actualAngle)+refGoal.x()*cos(actualAngle),-refGoal.x()*sin(actualAngle)+refGoal.y()*cos(actualAngle));
-		float goalAngle = getScanAngle(turnedRefGoal,r);		
+		//float goalAngle = getScanAngle(turnedRefGoal,r);		
 
 		//DrawLine(bl, turnedRefGoal, 0xd034d4, local_viz_msg_);
 		
@@ -474,10 +474,11 @@ float * ShortestPathOD(float curve,bool plot, int color){
 		}
 		
 		//find closest point on path to goal
+		/*comment out for removing navigation closest point
 		if(min_obst_angle > goalAngle){
 				min_obst_angle = goalAngle;
 				isObst = false;
-		}
+		}*/
 		
 		//if the obstacle angle is negative for some reason, set to zero
 		if (min_obst_angle < 0){
@@ -502,11 +503,12 @@ float * ShortestPathOD(float curve,bool plot, int color){
 		const Vector2f bl(0,0);
 		//DrawLine(bl,relEndPoint, 0xFFC8CC,local_viz_msg_);
 		endGoalDist= dist(relEndPoint, turnedRefGoal);
-		float currGoalDist = dist(bl,turnedRefGoal);
+		//float currGoalDist = dist(bl,turnedRefGoal);
 		//if end path takes you further from goal, don't move
+		/*also comment our for removing navigation closest point
 		if(currGoalDist<endGoalDist){
 			min_obst_angle = 0;
-		}
+		}*/
 		
 		minDist= min_obst_angle * r;
 
@@ -802,17 +804,20 @@ void Navigation::Run() {
 		//const Vector2f startLocation(actualLocation.x(),actualLocation.y());
 		ROS_INFO("initializing starting odometry");
     } 
-     
-	
-	if((goalLocation.x() != 0)&&(goalLocation.y() != 0)){
+	drive_msg_.curvature = .2;
+     //find longest free path for given curvature
+	float *odVars1;
+	odVars1 = ShortestPathOD(drive_msg_.curvature,true, 0);
+	TOC(*(odVars1),velMag);
+	//if((goalLocation.x() != 0)&&(goalLocation.y() != 0)){
 		
-		
+		/*
 		float *scoreVars;
 		float *scoreVars2;
 		scoreVars = score();
 		scoreVars2 = refine(*(scoreVars+1));
 		drive_msg_.curvature = *(scoreVars2+1);
-		TOC(*(scoreVars2),velMag);
+		TOC(*(scoreVars2),velMag);*/
 		//green is refined path
 		
 		
@@ -825,9 +830,10 @@ void Navigation::Run() {
 		TOC(*(odDrive),velMag);
 		ROS_INFO("FPL: %f, clearance: %f",FPL, clearance);
 		*/
-	}
+	//}
 	
-	
+
+
 	//visualization of possible paths
 	/*
 	float i = 1.05;

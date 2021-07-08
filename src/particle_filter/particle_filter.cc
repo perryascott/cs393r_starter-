@@ -99,38 +99,55 @@ void ParticleFilter::GetPredictedPointCloud(const Vector2f& loc,
   // Note: The returned values must be set using the `scan` variable:
   scan.resize(num_ranges);
   // Fill in the entries of scan using array writes, e.g. scan[i] = ...
+  
   for (size_t i = 0; i < scan.size(); ++i) {
     scan[i] = Vector2f(0, 0);
   }
 
   // The line segments in the map are stored in the `map_.lines` variable. You
   // can iterate through them as:
-  for (size_t i = 0; i < map_.lines.size(); ++i) {
-    const line2f map_line = map_.lines[i];
-    // The line2f class has helper functions that will be useful.
-    // You can create a new line segment instance as follows, for :
-    line2f my_line(1, 2, 3, 4); // Line segment from (1,2) to (3.4).
-    // Access the end points using `.p0` and `.p1` members:
-    printf("P0: %f, %f P1: %f,%f\n", 
-           my_line.p0.x(),
-           my_line.p0.y(),
-           my_line.p1.x(),
-           my_line.p1.y());
+  float angleStart = -3*M_PI/4;
+  float angleIncrement = 3*M_PI/(2*(scan.size()-1));
+  int scanCount = 0;
+  for(size_t j = 0; j< scan.size(); ++j){
+	float rayAngle = angleStart + (j*angleIncrement);
+	float min = range_max;
 
-    // Check for intersections:
-    bool intersects = map_line.Intersects(my_line);
-    // You can also simultaneously check for intersection, and return the point
-    // of intersection:
-    Vector2f intersection_point; // Return variable
-    intersects = map_line.Intersection(my_line, &intersection_point);
-    if (intersects) {
-      printf("Intersects at %f,%f\n", 
-             intersection_point.x(),
-             intersection_point.y());
-    } else {
-      printf("No intersection\n");
-    }
+	  for (size_t i = 0; i < map_.lines.size(); ++i) {
+
+
+		const line2f map_line = map_.lines[i];
+		// The line2f class has helper functions that will be useful.
+		// You can create a new line segment instance as follows, for :
+		line2f rayLine(loc.x(),loc.y(), loc.x()+range_max*cos(angle+rayAngle), loc.y() + range_max*sin(angle+rayAngle)); // Line segment from (1,2) to (3.4).
+		// Access the end points using `.p0` and `.p1` members:
+
+		
+		// Check for intersections:
+		bool intersects = map_line.Intersects(rayLine);
+		// You can also simultaneously check for intersection, and return the point
+		// of intersection:
+		Vector2f intersection_point; // Return variable
+		intersects = map_line.Intersection(rayLine, &intersection_point);
+
+		if (intersects) {
+
+			float range = dist(intersection_point, loc);
+			if(range < min){
+				min = range;
+			}
+
+		} 
+	  }
+	if (min < range_min){
+		 min = range_min;
+	}
+	
+	scan[scanCount] = Vector2f(min*cos(rayAngle),min*sin(rayAngle));
+	scanCount++;
   }
+  
+
 }
 
 void ParticleFilter::Update(const vector<float>& ranges,
@@ -145,7 +162,7 @@ void ParticleFilter::Update(const vector<float>& ranges,
   // on the observation likelihood computed by relating the observation to the
   // predicted point cloud.
 }
-
+ 
 void ParticleFilter::Resample() {
   // Resample the particles, proportional to their weights.
   // The current particles are in the `particles_` variable. 
@@ -221,7 +238,7 @@ void ParticleFilter::ObserveOdometry(const Vector2f& odom_loc,
 	prev_odom_loc_ = odom_loc;
     prev_odom_angle_ = odom_angle;
   particles_ = new_particles;
-ROS_INFO("odomx = %f odomy = %f angle = %f", odom_loc.x(), odom_loc.y(), odom_angle);
+//ROS_INFO("odomx = %f odomy = %f angle = %f", odom_loc.x(), odom_loc.y(), odom_angle);
   // You will need to use the Gaussian random number generator provided. For
   // example, to generate a random number from a Gaussian with mean 0, and
   // standard deviation 2:
@@ -236,7 +253,23 @@ void ParticleFilter::Initialize(const string& map_file,
   // The "set_pose" button on the GUI was clicked, or an initialization message
   // was received from the log. Initialize the particles accordingly, e.g. with
   // some distribution around the provided location and angle.
+  map_.Load(map_file);
+  //distribut the particles around the car 
+  int numParticles = 200;
+  for(int i = 0; i < numParticles; ++i){
+	 float px = rng_.Gaussian(0, 4) + loc.x();
+	 float py = rng_.Gaussian(0, 4) + loc.y();
+	 float pang = angle + rng_.Gaussian(0,M_PI);
+	 const Vector2f newPose(px,py);
+	 Particle new_p = {
+		newPose,
+			pang,
+			1.0/numParticles,
+		};
+	particles_.push_back(new_p);
+  }
 }
+
 
 void ParticleFilter::GetLocation(Eigen::Vector2f* loc_ptr, 
                                  float* angle_ptr) const {
