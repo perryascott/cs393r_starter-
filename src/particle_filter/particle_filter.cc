@@ -196,7 +196,7 @@ void ParticleFilter::ObserveOdometry(const Vector2f& odom_loc,
   // Implement the motion model predict step here, to propagate the particles
   // forward based on odometry.
 	vector<Particle> new_particles;
-	
+	new_particles.clear();
 	
 	//banana distribution values 
 	//float k1 = .04;
@@ -208,30 +208,63 @@ void ParticleFilter::ObserveOdometry(const Vector2f& odom_loc,
 	
 	
 
-	float k1 = .01;
-	float k2 = .01;
+	float k1 = .02;
+	float k2 = .02;
 	/*float k3 = 1;
 	float k4 = 1;*/
 	float k5 = .05;
 	float k6 = .05;
 	
-	float distance = dist(odom_loc,prev_odom_loc_);
-	float angleChange = abs(prev_odom_angle_ - odom_angle);
-	//const Vector2f pose1(1,2);
-	int n = 50;
-	for (int i=0; i<n;i++){
-		float x = rng_.Gaussian(distance, k1*distance + k2*angleChange);
-		//float y = 0;//rng_.Gaussian(0, k3*distance + k4*angleChange);
-		float ang = rng_.Gaussian(0, k5*distance + k6*angleChange);
-		//float theta = rng.Gaussian(prev_odom_angle, k
-		const Vector2f particlePose(x*cos(ang)+2,x*sin(ang));
-		Particle new_p = {
-			particlePose,
-			ang,
-			.05,
-		};
-		new_particles.push_back(new_p);
-		//ROS_INFO("angle bruh= %f",ang);
+	float odomDiff = dist(odom_loc,prev_odom_loc_); //distance between odom measurements
+	float angleChange = odom_angle - prev_odom_angle_; //mean angle travelled (theta)
+
+	for (size_t i=0; i<particles_.size(); ++i){
+		
+		//absolute location and angle before propagation
+		float v1x = particles_[i].loc.x();
+		float v1y = particles_[i].loc.y();
+		float v1angle = particles_[i].angle; 
+		
+
+		
+
+		if(angleChange!=0){
+			float rad = (odomDiff/2)/sin(abs(angleChange)/2);//estimated radius of curvature
+			float s = abs(angleChange)*rad;// mean distance travelled along curve
+			float dist = rng_.Gaussian(0, k1*s + k2*abs(angleChange)) + s;
+			float deltaAng = rng_.Gaussian(0, k5*s + k6*abs(angleChange));
+			
+			float refDeltaX = rad*sin(angleChange);
+			float refDeltaY = rad*(1-cos(angleChange));
+			float v2x = v1x + refDeltaX*cos(v1angle) -refDeltaY*sin(v1angle); // mean x after propagation
+			float v2y = v1y + refDeltaY*cos(v1angle) + refDeltaX*sin(v1angle);; //mean y after propagation
+			
+			float Xnoise = dist*cos(deltaAng) - s;
+			float Ynoise = dist*sin(deltaAng);
+			
+			float finalAngle = v1angle + angleChange + deltaAng;
+			
+			const Vector2f newParticlePose(v2x + Xnoise*cos(finalAngle)-Ynoise*sin(finalAngle), v2y + Ynoise*cos(finalAngle) + Xnoise*sin(finalAngle));
+			Particle new_p = {
+				newParticlePose,
+				finalAngle,
+				.05,
+			};
+			new_particles.push_back(new_p);
+		} else{
+			//distance traveled and angle traveled calculated using gaussian distribution
+			float dist = rng_.Gaussian(0, k1*odomDiff + k2*abs(angleChange)) + odomDiff;
+			float deltaAng = rng_.Gaussian(0, k5*odomDiff + k6*abs(angleChange));
+			
+			const Vector2f newParticlePose(v1x + dist*cos(deltaAng+v1angle), v1y + dist*sin(deltaAng+v1angle));
+			Particle new_p = {
+				newParticlePose,
+				deltaAng+v1angle,
+				.05,
+			};
+			new_particles.push_back(new_p);
+			//ROS_INFO("angle bruh= %f",ang);
+		}
 	}
  
 	
@@ -253,12 +286,14 @@ void ParticleFilter::Initialize(const string& map_file,
   // The "set_pose" button on the GUI was clicked, or an initialization message
   // was received from the log. Initialize the particles accordingly, e.g. with
   // some distribution around the provided location and angle.
+  particles_.clear();
   map_.Load(map_file);
   //distribut the particles around the car 
-  int numParticles = 200;
+  int numParticles = 100;
+  /*
   for(int i = 0; i < numParticles; ++i){
-	 float px = rng_.Gaussian(0, 4) + loc.x();
-	 float py = rng_.Gaussian(0, 4) + loc.y();
+	 float px = rng_.Gaussian(0, 1) + loc.x();
+	 float py = rng_.Gaussian(0, 1) + loc.y();
 	 float pang = angle + rng_.Gaussian(0,M_PI);
 	 const Vector2f newPose(px,py);
 	 Particle new_p = {
@@ -267,7 +302,19 @@ void ParticleFilter::Initialize(const string& map_file,
 			1.0/numParticles,
 		};
 	particles_.push_back(new_p);
-  }
+  }*/
+    for(int i = 0; i < numParticles; ++i){
+	 float px = loc.x();
+	 float py = loc.y();
+	 float pang = angle;
+	 const Vector2f newPose(px,py);
+	 Particle new_p = {
+		newPose,
+			pang,
+			1.0/numParticles,
+		};
+	particles_.push_back(new_p);
+	}
 }
 
 

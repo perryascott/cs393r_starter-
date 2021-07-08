@@ -107,7 +107,7 @@ void PublishParticles() {
   particle_filter_.GetParticles(&particles);
   for (const particle_filter::Particle& p : particles) {
     //DrawParticle(p.loc, p.angle, vis_msg_);
-	DrawPoint(p.loc,0x0000FF,vis_msg_);
+	DrawPoint(p.loc,0x0000FF,vis_msg_); //for seeing banana distribution
   }
 }
 
@@ -172,8 +172,8 @@ void PublishVisualization() {
   ClearVisualizationMsg(vis_msg_);
 
   PublishParticles();
-  PublishPredictedScan();
-  PublishTrajectory();
+  //PublishPredictedScan();
+ // PublishTrajectory();
   visualization_publisher_.publish(vis_msg_);
 }
 
