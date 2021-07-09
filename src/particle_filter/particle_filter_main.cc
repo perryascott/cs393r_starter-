@@ -106,8 +106,8 @@ void PublishParticles() {
   vector<particle_filter::Particle> particles;
   particle_filter_.GetParticles(&particles);
   for (const particle_filter::Particle& p : particles) {
-    //DrawParticle(p.loc, p.angle, vis_msg_);
-	DrawPoint(p.loc,0x0000FF,vis_msg_); //for seeing banana distribution
+    DrawParticle(p.loc, p.angle, vis_msg_);
+	//DrawPoint(p.loc,0x0000FF,vis_msg_); //for seeing banana distribution
   }
 }
 

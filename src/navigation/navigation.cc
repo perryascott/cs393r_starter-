@@ -804,7 +804,7 @@ void Navigation::Run() {
 		//const Vector2f startLocation(actualLocation.x(),actualLocation.y());
 		ROS_INFO("initializing starting odometry");
     } 
-	drive_msg_.curvature = .2;
+	drive_msg_.curvature = .4;
      //find longest free path for given curvature
 	float *odVars1;
 	odVars1 = ShortestPathOD(drive_msg_.curvature,true, 0);

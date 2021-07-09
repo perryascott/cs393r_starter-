@@ -198,6 +198,14 @@ void ParticleFilter::ObserveOdometry(const Vector2f& odom_loc,
 	vector<Particle> new_particles;
 	new_particles.clear();
 	
+	
+	if(!odom_initialized_){
+		prev_odom_loc_ = odom_loc;
+		prev_odom_angle_ = odom_angle;
+		odom_initialized_ = true;
+		return;
+	}
+	
 	//banana distribution values 
 	//float k1 = .04;
 	//float k2 = .04;
@@ -208,18 +216,33 @@ void ParticleFilter::ObserveOdometry(const Vector2f& odom_loc,
 	
 	
 
-	float k1 = .02;
-	float k2 = .02;
+	float k1 = .06;
+	float k2 = .06;
 	/*float k3 = 1;
 	float k4 = 1;*/
-	float k5 = .05;
-	float k6 = .05;
+	float k5 = .15;
+	float k6 = .15;
 	
 	float odomDiff = dist(odom_loc,prev_odom_loc_); //distance between odom measurements
-	float angleChange = odom_angle - prev_odom_angle_; //mean angle travelled (theta)
+	float angleChange = 0;
+	if((odom_angle * prev_odom_angle_ < 0)&&(abs(odom_angle) > 3.0)){
+		if(odom_angle > 0){
+			angleChange = -2*M_PI + odom_angle - prev_odom_angle_;
+		} else {
+			angleChange = 2*M_PI + odom_angle - prev_odom_angle_;
+		}
+	} else {
+		angleChange = odom_angle - prev_odom_angle_; //mean angle travelled (theta)
+	}
+	
+	ROS_INFO("odom angle = %f prev ang=  %f",odom_angle,prev_odom_angle_);
+	ROS_INFO("odom x = %f odom y=  %f",odom_loc.x(),odom_loc.y());
 
 	for (size_t i=0; i<particles_.size(); ++i){
 		
+		//if(i%30  <1){
+		//	ROS_INFO("angleDiff = %f", prev_odom_angle_ - particles_[i].angle);
+		//}
 		//absolute location and angle before propagation
 		float v1x = particles_[i].loc.x();
 		float v1y = particles_[i].loc.y();
@@ -234,11 +257,16 @@ void ParticleFilter::ObserveOdometry(const Vector2f& odom_loc,
 			float dist = rng_.Gaussian(0, k1*s + k2*abs(angleChange)) + s;
 			float deltaAng = rng_.Gaussian(0, k5*s + k6*abs(angleChange));
 			
-			float refDeltaX = rad*sin(angleChange);
-			float refDeltaY = rad*(1-cos(angleChange));
-			float v2x = v1x + refDeltaX*cos(v1angle) -refDeltaY*sin(v1angle); // mean x after propagation
-			float v2y = v1y + refDeltaY*cos(v1angle) + refDeltaX*sin(v1angle);; //mean y after propagation
+			float odomDeltaX = odom_loc.x() - prev_odom_loc_.x();
+			float odomDeltaY = odom_loc.y() - prev_odom_loc_.y();
+
+			float refDeltaX = odomDeltaX*cos(-prev_odom_angle_)-odomDeltaY*sin(-prev_odom_angle_); //rad*sin(abs(angleChange));
+			float refDeltaY = odomDeltaY*cos(-prev_odom_angle_)+odomDeltaX*sin(-prev_odom_angle_);//rad*(1-cos(abs(angleChange)));
+			float v2x = v1x + refDeltaX*cos(v1angle) - refDeltaY*sin(v1angle); // mean x after propagation
+			float v2y = v1y + refDeltaY*cos(v1angle) + refDeltaX*sin(v1angle);//mean y after propagation
 			
+			
+
 			float Xnoise = dist*cos(deltaAng) - s;
 			float Ynoise = dist*sin(deltaAng);
 			
@@ -303,6 +331,7 @@ void ParticleFilter::Initialize(const string& map_file,
 		};
 	particles_.push_back(new_p);
   }*/
+  odom_initialized_ = false;
     for(int i = 0; i < numParticles; ++i){
 	 float px = loc.x();
 	 float py = loc.y();
