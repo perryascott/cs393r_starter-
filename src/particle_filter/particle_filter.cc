@@ -156,11 +156,31 @@ void ParticleFilter::Update(const vector<float>& ranges,
                             float angle_min,
                             float angle_max,
                             Particle* p_ptr) {
-  // Implement the update step of the particle filter here.
+								
+								
+	//ROS_INFO("ELLLOOO1");
+	//scanScores[50] = 0;
+	//ROS_INFO("%f", scanScores[50]);
+	vector<Vector2f> prtcl_scan;
+	Particle ptcl = *p_ptr;
+	//float score = 0;
+	ParticleFilter::GetPredictedPointCloud(p_ptr->loc,p_ptr->angle,ranges.size(),range_min,range_max,angle_min,angle_max,&prtcl_scan);
+	float gamma = .5;
+	float var = .01;
+	float weight = 1;
+	const Vector2f origin(0,0);
+	for(size_t i=0; i< prtcl_scan.size(); ++i){
+		float predict_dist = dist(origin, prtcl_scan[i]);
+		weight += gamma*(-1/(2*pow(var,2)))*pow(predict_dist - ranges[i],2);
+	}
+	ptcl.weight = weight;
+	*p_ptr = ptcl;
+ // Implement the update step of the particle filter here.
   // You will have to use the `GetPredictedPointCloud` to predict the expected
   // observations for each particle, and assign weights to the particles based
   // on the observation likelihood computed by relating the observation to the
   // predicted point cloud.
+  
 }
  
 void ParticleFilter::Resample() {
@@ -188,6 +208,18 @@ void ParticleFilter::ObserveLaser(const vector<float>& ranges,
                                   float angle_max) {
   // A new laser scan observation is available (in the laser frame)
   // Call the Update and Resample steps as necessary.
+  	//ROS_INFO("ELLLOOO2");
+	float weightSum = 0;
+	for (size_t i=0; i<particles_.size(); ++i){
+		
+		ParticleFilter::Update(ranges, range_min, range_max, angle_min, angle_max, &particles_[i]);
+		weightSum += particles_[i].weight;
+		
+	}
+	
+	//normalize the weights please
+	
+  
 }
 
 void ParticleFilter::ObserveOdometry(const Vector2f& odom_loc,
@@ -209,17 +241,11 @@ void ParticleFilter::ObserveOdometry(const Vector2f& odom_loc,
 	//banana distribution values 
 	//float k1 = .04;
 	//float k2 = .04;
-	/*float k3 = 1;
-	float k4 = 1;*/
 	//float k5 = .2;
 	//float k6 = .2;
-	
-	
 
 	float k1 = .06;
 	float k2 = .06;
-	/*float k3 = 1;
-	float k4 = 1;*/
 	float k5 = .15;
 	float k6 = .15;
 	
@@ -235,23 +261,18 @@ void ParticleFilter::ObserveOdometry(const Vector2f& odom_loc,
 		angleChange = odom_angle - prev_odom_angle_; //mean angle travelled (theta)
 	}
 	
-	ROS_INFO("odom angle = %f prev ang=  %f",odom_angle,prev_odom_angle_);
-	ROS_INFO("odom x = %f odom y=  %f",odom_loc.x(),odom_loc.y());
+	//ROS_INFO("odom angle = %f prev ang=  %f",odom_angle,prev_odom_angle_);
+	//ROS_INFO("odom x = %f odom y=  %f",odom_loc.x(),odom_loc.y());
 
 	for (size_t i=0; i<particles_.size(); ++i){
-		
-		//if(i%30  <1){
-		//	ROS_INFO("angleDiff = %f", prev_odom_angle_ - particles_[i].angle);
-		//}
+	
 		//absolute location and angle before propagation
 		float v1x = particles_[i].loc.x();
 		float v1y = particles_[i].loc.y();
 		float v1angle = particles_[i].angle; 
-		
-
-		
 
 		if(angleChange!=0){
+			
 			float rad = (odomDiff/2)/sin(abs(angleChange)/2);//estimated radius of curvature
 			float s = abs(angleChange)*rad;// mean distance travelled along curve
 			float dist = rng_.Gaussian(0, k1*s + k2*abs(angleChange)) + s;
@@ -264,8 +285,6 @@ void ParticleFilter::ObserveOdometry(const Vector2f& odom_loc,
 			float refDeltaY = odomDeltaY*cos(-prev_odom_angle_)+odomDeltaX*sin(-prev_odom_angle_);//rad*(1-cos(abs(angleChange)));
 			float v2x = v1x + refDeltaX*cos(v1angle) - refDeltaY*sin(v1angle); // mean x after propagation
 			float v2y = v1y + refDeltaY*cos(v1angle) + refDeltaX*sin(v1angle);//mean y after propagation
-			
-			
 
 			float Xnoise = dist*cos(deltaAng) - s;
 			float Ynoise = dist*sin(deltaAng);
@@ -279,11 +298,12 @@ void ParticleFilter::ObserveOdometry(const Vector2f& odom_loc,
 				.05,
 			};
 			new_particles.push_back(new_p);
+			
 		} else{
+			
 			//distance traveled and angle traveled calculated using gaussian distribution
 			float dist = rng_.Gaussian(0, k1*odomDiff + k2*abs(angleChange)) + odomDiff;
 			float deltaAng = rng_.Gaussian(0, k5*odomDiff + k6*abs(angleChange));
-			
 			const Vector2f newParticlePose(v1x + dist*cos(deltaAng+v1angle), v1y + dist*sin(deltaAng+v1angle));
 			Particle new_p = {
 				newParticlePose,
@@ -291,14 +311,14 @@ void ParticleFilter::ObserveOdometry(const Vector2f& odom_loc,
 				.05,
 			};
 			new_particles.push_back(new_p);
-			//ROS_INFO("angle bruh= %f",ang);
 		}
+		
 	}
  
-	
 	prev_odom_loc_ = odom_loc;
     prev_odom_angle_ = odom_angle;
-  particles_ = new_particles;
+	particles_ = new_particles;
+	
 //ROS_INFO("odomx = %f odomy = %f angle = %f", odom_loc.x(), odom_loc.y(), odom_angle);
   // You will need to use the Gaussian random number generator provided. For
   // example, to generate a random number from a Gaussian with mean 0, and
