@@ -105,6 +105,21 @@ void InitializeMsgs() {
 void PublishParticles() {
   vector<particle_filter::Particle> particles;
   particle_filter_.GetParticles(&particles);
+  
+  	const Vector2f point(0,0);
+	particle_filter::Particle max_p ={
+				point,
+				0,
+				INT_MIN,
+			};
+	
+	for (size_t i=0; i<particles.size(); ++i){
+		if (particles[i].weight > max_p.weight){
+			max_p = particles[i];
+		}
+		
+	}
+	DrawPoint(max_p.loc,0x0000FF,vis_msg_);
   for (const particle_filter::Particle& p : particles) {
     DrawParticle(p.loc, p.angle, vis_msg_);
 	//DrawPoint(p.loc,0x0000FF,vis_msg_); //for seeing banana distribution
@@ -133,6 +148,8 @@ void PublishPredictedScan() {
       last_laser_msg_.angle_min,
       last_laser_msg_.angle_max,
       &predicted_scan);
+	  
+	 
   for (const Vector2f& p : predicted_scan) {
     DrawPoint(p, kColor, vis_msg_);
   }
@@ -172,6 +189,14 @@ void PublishVisualization() {
   ClearVisualizationMsg(vis_msg_);
 
   PublishParticles();
+ // Vector2f robot_loc(2, 2);
+ // float robot_angle(0);
+ // particle_filter_.GetLocation(&robot_loc, &robot_angle);
+ // const Vector2f things(-2,-2);
+ // DrawPoint(robot_loc,0x00FF00,vis_msg_);
+  //DrawPoint(things,0x00FF00,vis_msg_);
+
+  
   //PublishPredictedScan();
  // PublishTrajectory();
   visualization_publisher_.publish(vis_msg_);
@@ -199,14 +224,16 @@ void OdometryCallback(const nav_msgs::Odometry& msg) {
   const float odom_angle =
       2.0 * atan2(msg.pose.pose.orientation.z, msg.pose.pose.orientation.w);
   particle_filter_.ObserveOdometry(odom_loc, odom_angle);
-  Vector2f robot_loc(0, 0);
+  Vector2f robot_loc(2, 2);
   float robot_angle(0);
   particle_filter_.GetLocation(&robot_loc, &robot_angle);
   amrl_msgs::Localization2DMsg localization_msg;
   localization_msg.pose.x = robot_loc.x();
   localization_msg.pose.y = robot_loc.y();
   localization_msg.pose.theta = robot_angle;
-  localization_publisher_.publish(localization_msg);
+ localization_publisher_.publish(localization_msg);
+ ////DrawPoint(robot_loc,0x00FF00,vis_msg_);
+ //visualization_publisher_.publish(vis_msg_);
   PublishVisualization();
 }
  

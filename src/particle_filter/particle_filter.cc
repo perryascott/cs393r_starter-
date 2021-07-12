@@ -81,6 +81,7 @@ void ParticleFilter::GetParticles(vector<Particle>* particles) const {
   *particles = particles_;
 }
 
+int scanStep = 8;
 void ParticleFilter::GetPredictedPointCloud(const Vector2f& loc,
                                             const float angle,
                                             int num_ranges,
@@ -100,7 +101,7 @@ void ParticleFilter::GetPredictedPointCloud(const Vector2f& loc,
   scan.resize(num_ranges);
   // Fill in the entries of scan using array writes, e.g. scan[i] = ...
   
-  for (size_t i = 0; i < scan.size(); ++i) {
+  for (size_t i = 0; i < scan.size(); i=i+scanStep) {
     scan[i] = Vector2f(0, 0);
   }
 
@@ -109,7 +110,7 @@ void ParticleFilter::GetPredictedPointCloud(const Vector2f& loc,
   float angleStart = -3*M_PI/4;
   float angleIncrement = 3*M_PI/(2*(scan.size()-1));
   int scanCount = 0;
-  for(size_t j = 0; j< scan.size(); ++j){
+  for(size_t j = 0; j< scan.size(); j=j+scanStep){
 	float rayAngle = angleStart + (j*angleIncrement);
 	float min = range_max;
 
@@ -167,9 +168,9 @@ void ParticleFilter::Update(const vector<float>& ranges,
 	ParticleFilter::GetPredictedPointCloud(p_ptr->loc,p_ptr->angle,ranges.size(),range_min,range_max,angle_min,angle_max,&prtcl_scan);
 	float gamma = .5;
 	float var = .01;
-	float weight = 1;
+	float weight = 0;
 	const Vector2f origin(0,0);
-	for(size_t i=0; i< prtcl_scan.size(); ++i){
+	for(size_t i=0; i< prtcl_scan.size(); i=i+scanStep){
 		float predict_dist = dist(origin, prtcl_scan[i]);
 		weight += gamma*(-1/(2*pow(var,2)))*pow(predict_dist - ranges[i],2);
 	}
@@ -208,7 +209,7 @@ void ParticleFilter::ObserveLaser(const vector<float>& ranges,
                                   float angle_max) {
   // A new laser scan observation is available (in the laser frame)
   // Call the Update and Resample steps as necessary.
-  	//ROS_INFO("ELLLOOO2");
+
 	float weightSum = 0;
 	for (size_t i=0; i<particles_.size(); ++i){
 		
@@ -218,8 +219,17 @@ void ParticleFilter::ObserveLaser(const vector<float>& ranges,
 	}
 	
 	//normalize the weights please
-	
-  
+	for (size_t i=0; i<particles_.size(); ++i){
+		particles_[i].weight = particles_[i].weight/weightSum;
+		
+	}
+
+	for (size_t i=0; i<particles_.size(); ++i){
+		particles_[i].weight = particles_[i].weight/weightSum;
+		
+	}
+
+	ROS_INFO("weight_sum: %f", weightSum);
 }
 
 void ParticleFilter::ObserveOdometry(const Vector2f& odom_loc,
@@ -336,8 +346,9 @@ void ParticleFilter::Initialize(const string& map_file,
   // some distribution around the provided location and angle.
   particles_.clear();
   map_.Load(map_file);
+  odom_initialized_ = false;
   //distribut the particles around the car 
-  int numParticles = 100;
+  int numParticles = 20;
   /*
   for(int i = 0; i < numParticles; ++i){
 	 float px = rng_.Gaussian(0, 1) + loc.x();
@@ -351,7 +362,7 @@ void ParticleFilter::Initialize(const string& map_file,
 		};
 	particles_.push_back(new_p);
   }*/
-  odom_initialized_ = false;
+  
     for(int i = 0; i < numParticles; ++i){
 	 float px = loc.x();
 	 float py = loc.y();
@@ -364,6 +375,18 @@ void ParticleFilter::Initialize(const string& map_file,
 		};
 	particles_.push_back(new_p);
 	}
+	
+	
+	/*
+	float lag = 0;
+	 const Vector2f newPose(loc.x() - lag*cos(angle),loc.y() - lag *sin(angle));
+	 Particle new_p = {
+		newPose,
+			angle,
+			1.0/numParticles,
+		};
+	particles_.push_back(new_p);
+	*/
 }
 
 
@@ -374,8 +397,29 @@ void ParticleFilter::GetLocation(Eigen::Vector2f* loc_ptr,
   // Compute the best estimate of the robot's location based on the current set
   // of particles. The computed values must be set to the `loc` and `angle`
   // variables to return them. Modify the following assignments:
-  loc = Vector2f(0, 0);
-  angle = 0;
+
+  
+  	float weight_sum = 0;
+	for (size_t i=0; i<particles_.size(); ++i){
+		weight_sum += particles_[i].weight;
+	}
+	float x_mean = 0;
+	float y_mean = 0;
+	float angle_mean = 0;
+	
+	for (size_t i=0; i<particles_.size(); ++i){
+		x_mean += (particles_[i].loc.x() * particles_[i].weight)/weight_sum;
+		y_mean += (particles_[i].loc.y() * particles_[i].weight)/weight_sum;
+		angle_mean += (particles_[i].angle * particles_[i].weight)/weight_sum;
+	}
+	
+	loc = Vector2f(x_mean, y_mean);
+	angle = angle_mean;
+	//ROS_INFO("x_mean: %f, y_mean: %f, angle: %f",x_mean, y_mean, angle_mean);
+	//loc = Vector2f(10,10);
+	//angle = 0;
+	//DrawParticle(loc, angle, vis_msg_);
+
 }
 
 

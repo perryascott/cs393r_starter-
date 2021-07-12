@@ -103,11 +103,17 @@ void Navigation::SetNavGoal(const Vector2f& loc, float angle) {
 }
 float actualAngle = 0;
 static Vector2f actualLocation(0,0);
-void Navigation::UpdateLocation(const Eigen::Vector2f& loc, float angle) {
+
+void Navigation::UpdateTruePose(const Eigen::Vector2f& loc, float angle) {
 	actualLocation = loc;
 	actualAngle = angle;
 
 }
+
+void Navigation::UpdateLocation(const Eigen::Vector2f& loc, float angle) {
+
+}
+
 
 void Navigation::UpdateOdometry(const Vector2f& loc,
                                 float angle,
@@ -280,6 +286,23 @@ void plotObstArc(float curve, float rCent, float ang_dist,float ang_offset,int c
 	}  
 }
 
+//plots arc from front edge using curve curvature, rCent as the center of rotation radius, angle_dist as length
+// and ang_offset as angle from baselink to the leading edge
+void plotObstArcOrigin(float curve, float rCent, float ang_dist,float ang_offset,int color){
+	
+	float rad=abs(1/curve); 
+
+	const Vector2f center(0, rSign*rCent);
+	float start_angle = atan2(-center.y(),-center.x());
+
+	if(curve<0){
+		DrawArc(center, rad ,start_angle - (ang_dist+ang_offset),start_angle - (ang_offset),color,local_viz_msg_) ;
+	}
+	else{
+		DrawArc(center, rad ,start_angle+(ang_offset),start_angle+(ang_dist+ang_offset),color,local_viz_msg_) ;
+	}  
+}
+
 void plotCar(int color1,int color2){
 	
 	//plot virtual components for obstacle detection
@@ -331,12 +354,12 @@ void TOC(float dist, float velMag){
 		minStopDist = pow(velMag,2)/(2*maxd);
 		if((dist - deltaT*velMag) <= minStopDist){
 			drive_msg_.velocity = 0;
-			ROS_INFO("slowing down");
+			//ROS_INFO("slowing down");
 		}
 		//otherwise remain at top speed
 		else{
 			drive_msg_.velocity = vmax;
-			ROS_INFO("remain at top speed");
+			//ROS_INFO("remain at top speed");
 		}
 	} 
 	else {
@@ -345,13 +368,13 @@ void TOC(float dist, float velMag){
 		minStopDist = pow((velMag+deltaT*maxa),2)/(2*maxd);
 		if((dist - deltaT*velMag-1/2*maxa*pow(deltaT,2)) <= minStopDist){
 			drive_msg_.velocity = 0;
-			ROS_INFO("slowing down");
+			//ROS_INFO("slowing down");
 		}
 
 		//otherwise accelerate
 		else {
 			drive_msg_.velocity = vmax;
-			ROS_INFO("speeding up");
+			//ROS_INFO("speeding up");
 		}
 	}
 }
@@ -492,7 +515,7 @@ float * ShortestPathOD(float curve,bool plot, int color){
 		//plotLinkArc(1/(kRad), r, kAngle, 0x964B00);
 		//plotLinkArc(1/(innerRad), r, kAngle, 0x964B00);
 		if(plot){
-			plotObstArc(1/minPointRad*rSign, r, min_obst_angle, min_angle_offset,color);
+			plotObstArcOrigin(1/minPointRad*rSign, r, min_obst_angle, min_angle_offset,color);
 		}
 		
 		
@@ -804,7 +827,7 @@ void Navigation::Run() {
 		//const Vector2f startLocation(actualLocation.x(),actualLocation.y());
 		ROS_INFO("initializing starting odometry");
     } 
-	drive_msg_.curvature = -.4;
+	drive_msg_.curvature = .3;
      //find longest free path for given curvature
 	float *odVars1;
 	odVars1 = ShortestPathOD(drive_msg_.curvature,true, 0);
@@ -854,7 +877,7 @@ void Navigation::Run() {
 
 	//plot the bot
 	
-	plotCar(0x0000ff,0xff0000);
+	//plotCar(0x0000ff,0xff0000);
 	DrawCross(nav_goal_loc_, .1, 0xFF00FF,local_viz_msg_);
 	viz_pub_.publish(local_viz_msg_);
 	drive_pub_.publish(drive_msg_);

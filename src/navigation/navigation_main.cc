@@ -65,6 +65,7 @@ using Eigen::Vector2f;
 DEFINE_string(laser_topic, "scan", "Name of ROS topic for LIDAR data");
 DEFINE_string(odom_topic, "odom", "Name of ROS topic for odometry data");
 DEFINE_string(loc_topic, "localization", "Name of ROS topic for localization");
+DEFINE_string(truePose_topic, "truePost", "Name of ROS topic for truePose");
 DEFINE_string(init_topic,
               "initialpose",
               "Name of ROS topic for initialization");
@@ -145,21 +146,22 @@ void SignalHandler(int) {
   printf("Exiting.\n");
   run_ = false;
 }
-/*
+
 void LocalizationCallback(const amrl_msgs::Localization2DMsg msg) {
   if (FLAGS_v > 0) {
     printf("Localization t=%f\n", GetWallTime());
   }
-  ROS_INFO("cummm");
-  navigation_->UpdateLocation(Vector2f(msg.pose.x, msg.pose.y), msg.pose.theta);
-}*/
 
-void LocalizationCallback(const geometry_msgs::PoseStamped& msg) {
+  navigation_->UpdateLocation(Vector2f(msg.pose.x, msg.pose.y), msg.pose.theta);
+}
+
+
+void TruePoseCallback(const geometry_msgs::PoseStamped& msg) {
   if (FLAGS_v > 0) {
-    printf("Localization t=%f\n", GetWallTime());
+    printf("Geometry t=%f\n", GetWallTime());
   }
   float angle = 2*atan2(msg.pose.orientation.z,msg.pose.orientation.w);
-  navigation_->UpdateLocation(Vector2f(msg.pose.position.x, msg.pose.position.y), angle);
+  navigation_->UpdateTruePose(Vector2f(msg.pose.position.x, msg.pose.position.y), angle);
 }
 
 
@@ -173,14 +175,16 @@ int main(int argc, char** argv) {
 
   ros::Subscriber velocity_sub =
       n.subscribe(FLAGS_odom_topic, 1, &OdometryCallback);
-  /*ros::Subscriber localization_sub =
-      n.subscribe(FLAGS_loc_topic, 1, &LocalizationCallback);*/
+  ros::Subscriber localization_sub =
+      n.subscribe(FLAGS_loc_topic, 1, &LocalizationCallback);
   ros::Subscriber laser_sub =
       n.subscribe("/scan", 1, &LaserCallback);
   ros::Subscriber goto_sub =
       n.subscribe("/move_base_simple/goal", 1, &GoToCallback); 
-  ros::Subscriber localization_sub =
-      n.subscribe("/simulator_true_pose", 1, &LocalizationCallback);  
+
+	//added this for visualisation purposes
+  ros::Subscriber geometry_sub = 
+	  n.subscribe("/simulator_true_pose", 1, &TruePoseCallback);
 
 
   RateLoop loop(20.0);

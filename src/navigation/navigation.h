@@ -53,6 +53,9 @@ class Navigation {
 
   // Used in callback from localization to update position.
   void UpdateLocation(const Eigen::Vector2f& loc, float angle);
+  
+   // Used in callback from localization to update position.
+  void UpdateTruePose(const Eigen::Vector2f& loc, float angle);
 
   // Used in callback for odometry messages to update based on odometry.
   void UpdateOdometry(const Eigen::Vector2f& loc,
