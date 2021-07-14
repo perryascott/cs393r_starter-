@@ -28,6 +28,7 @@
 #include "glog/logging.h"
 #include "ros/ros.h"
 
+#include "amrl_msgs/VisualizationMsg.h"
 #include "shared/math/geometry.h"
 #include "shared/math/line2d.h"
 #include "shared/math/math_util.h"
@@ -37,7 +38,9 @@
 #include "particle_filter.h"
 
 #include "vector_map/vector_map.h"
+#include "visualization/visualization.h"
 
+using amrl_msgs::VisualizationMsg;
 using geometry::line2f;
 using std::cout;
 using std::endl;
@@ -47,7 +50,7 @@ using std::vector;
 using Eigen::Vector2f;
 using Eigen::Vector2i;
 using vector_map::VectorMap;
-
+using visualization::DrawLine;
 
 DEFINE_double(num_particles, 50, "Number of particles");
 
@@ -61,7 +64,12 @@ config_reader::ConfigReader config_reader_({"config/particle_filter.lua"});
 ParticleFilter::ParticleFilter() :
     prev_odom_loc_(0, 0),
     prev_odom_angle_(0),
-    odom_initialized_(false) {}
+    odom_initialized_(false) {
+		
+
+	}
+	
+
 
 //HELPER FUNCTIONS -----------------------------------------
 
@@ -100,27 +108,34 @@ void ParticleFilter::GetPredictedPointCloud(const Vector2f& loc,
   // Note: The returned values must be set using the `scan` variable:
   scan.resize(num_ranges);
   // Fill in the entries of scan using array writes, e.g. scan[i] = ...
-  
-  for (size_t i = 0; i < scan.size(); i=i+scanStep) {
-    scan[i] = Vector2f(0, 0);
-  }
+	//const Vector2f zero(0,0);
+	for(int g = 0; g< num_ranges; ++g){
+		scan[g] = Vector2f(0,0);
+	}
 
   // The line segments in the map are stored in the `map_.lines` variable. You
   // can iterate through them as:
-  float angleStart = -3*M_PI/4;
-  float angleIncrement = 3*M_PI/(2*(scan.size()-1));
+
+  float angleIncrement = (angle_max-angle_min)/(scan.size()-1);
   int scanCount = 0;
+  //int index = 0;
+  const Vector2f laserOrigin(loc.x() + .2*cos(angle),loc.y()+.2*sin(angle));
   for(size_t j = 0; j< scan.size(); j=j+scanStep){
-	float rayAngle = angleStart + (j*angleIncrement);
+	float rayAngle = angle_min + (scanCount*angleIncrement);
 	float min = range_max;
 
 	  for (size_t i = 0; i < map_.lines.size(); ++i) {
-
-
+		
+		
 		const line2f map_line = map_.lines[i];
+		//const Vector2f point1(map_line.p0, map_line.
+		//VisualizationMsg vis_msg_;
+		//DrawLine(map_line.p0,map_line.p1,0x0000FF,vis_msg_);
+		//viz_pub_.publish(vis_msg_);
 		// The line2f class has helper functions that will be useful.
 		// You can create a new line segment instance as follows, for :
-		line2f rayLine(loc.x(),loc.y(), loc.x()+range_max*cos(angle+rayAngle), loc.y() + range_max*sin(angle+rayAngle)); // Line segment from (1,2) to (3.4).
+	
+		line2f rayLine(laserOrigin.x(),laserOrigin.y(), laserOrigin.x()+range_max*cos(angle+rayAngle), laserOrigin.y()+ range_max*sin(angle+rayAngle)); // Line segment from (1,2) to (3.4).
 		// Access the end points using `.p0` and `.p1` members:
 
 		
@@ -133,7 +148,7 @@ void ParticleFilter::GetPredictedPointCloud(const Vector2f& loc,
 
 		if (intersects) {
 
-			float range = dist(intersection_point, loc);
+			float range = dist(intersection_point, laserOrigin);
 			if(range < min){
 				min = range;
 			}
@@ -144,8 +159,8 @@ void ParticleFilter::GetPredictedPointCloud(const Vector2f& loc,
 		 min = range_min;
 	}
 	
-	scan[scanCount] = Vector2f(min*cos(rayAngle),min*sin(rayAngle));
-	scanCount++;
+	scan[scanCount] = Vector2f(min*cos(rayAngle), min*sin(rayAngle));
+	scanCount=scanCount+scanStep;
   }
   
 
@@ -159,22 +174,25 @@ void ParticleFilter::Update(const vector<float>& ranges,
                             Particle* p_ptr) {
 								
 								
-	//ROS_INFO("ELLLOOO1");
-	//scanScores[50] = 0;
-	//ROS_INFO("%f", scanScores[50]);
+
 	vector<Vector2f> prtcl_scan;
 	Particle ptcl = *p_ptr;
 	//float score = 0;
 	ParticleFilter::GetPredictedPointCloud(p_ptr->loc,p_ptr->angle,ranges.size(),range_min,range_max,angle_min,angle_max,&prtcl_scan);
-	float gamma = .5;
-	float var = .01;
-	float weight = 0;
+	//float gamma = .5;
+	//float var = .01;
+	float score = 0;
+	//float coeff = gamma*(-1/(2*pow(var,2)))
 	const Vector2f origin(0,0);
 	for(size_t i=0; i< prtcl_scan.size(); i=i+scanStep){
 		float predict_dist = dist(origin, prtcl_scan[i]);
-		weight += gamma*(-1/(2*pow(var,2)))*pow(predict_dist - ranges[i],2);
+		score += -pow(predict_dist - ranges[i],2);
 	}
-	ptcl.weight = weight;
+	if(score == 0){
+		ptcl.weight = INT_MIN;
+	} else {
+	ptcl.weight = 1/score;
+	}
 	*p_ptr = ptcl;
  // Implement the update step of the particle filter here.
   // You will have to use the `GetPredictedPointCloud` to predict the expected
@@ -197,11 +215,85 @@ void ParticleFilter::Resample() {
 
   // You will need to use the uniform random number generator provided. For
   // example, to generate a random number between 0 and 1:
-  float x = rng_.UniformRandom(0, 1);
-  printf("Random number drawn from uniform distribution between 0 and 1: %f\n",
-         x);
+  	vector<Particle> new_particles;
+	new_particles.clear();
+
+	int num_particles = 40;
+  	float weight_sum = 0;
+	for (size_t i=0; i<particles_.size(); ++i){
+		weight_sum += particles_[i].weight;
+	}
+
+	int binCount[particles_.size()];
+	for(size_t p = 0; p < particles_.size(); ++p){
+		binCount[p] = 0;
+	}
+
+	for(int j = 0; j<num_particles; ++j){
+
+		float bin = weight_sum - particles_[0].weight;
+
+		float rand = rng_.UniformRandom(weight_sum, 0);
+
+		int count = 0;
+
+		while(bin<rand){
+			bin = bin - particles_[count].weight;
+			count++;
+		}
+		binCount[count] = binCount[count] + 1;
+	}
+	/*
+	for(int u = 0; u<num_particles; ++u){
+		ROS_INFO("bin %i has %i",u,binCount[u]);
+	}
+*/
+/*
+	int counter = 0;
+	for(const particle_filter::Particle& p : particles_){
+		ROS_INFO("particle %i has %f",counter,p.weight);
+		counter++;
+	} */
+	ROS_INFO("weight_sum = %f",weight_sum);	
+	
+	float c1 = .0;
+	float c2 = .0;
+	if(abs(weight_sum) / num_particles < 0.4/scanStep){
+		c1 = .005;
+		c2 = .0025;
+	}
+	else if(abs(weight_sum) / num_particles < 1.2/scanStep){
+		c1 = .02;
+		c2 = .005;
+	} else if(abs(weight_sum) / num_particles < 8.0/scanStep){
+		c1 = .05;
+		c2 = .1;
+	} else{
+		c1 = .4;
+		c2 = .2;
+	}
+	for(size_t k=0; k<particles_.size(); ++k){
+		
+		while(binCount[k] > 0){
+			float x =  rng_.Gaussian(0, c1) + particles_[k].loc.x();
+			float y = rng_.Gaussian(0, c1) + particles_[k].loc.y();
+			float angle = rng_.Gaussian(0, c2) + particles_[k].angle;
+			const Vector2f new_loc(x,y);
+			Particle new_p = {
+				new_loc,
+				angle,
+				1.0/num_particles
+			};
+			new_particles.push_back(new_p);
+			binCount[k] = binCount[k] - 1;
+		}
+		
+	}
+	particles_ = new_particles;
+	//ROS_INFO("num particles = %lu", particles_.size());
 }
 
+int laserObserveCount = 0;
 void ParticleFilter::ObserveLaser(const vector<float>& ranges,
                                   float range_min,
                                   float range_max,
@@ -209,6 +301,12 @@ void ParticleFilter::ObserveLaser(const vector<float>& ranges,
                                   float angle_max) {
   // A new laser scan observation is available (in the laser frame)
   // Call the Update and Resample steps as necessary.
+  	laserObserveCount++;
+  
+	if(particles_.size() == 0){
+		return;
+	}
+  
 
 	float weightSum = 0;
 	for (size_t i=0; i<particles_.size(); ++i){
@@ -228,8 +326,10 @@ void ParticleFilter::ObserveLaser(const vector<float>& ranges,
 		particles_[i].weight = particles_[i].weight/weightSum;
 		
 	}
-
-	ROS_INFO("weight_sum: %f", weightSum);
+	if(laserObserveCount % 4 == 0){
+		ParticleFilter::Resample();
+	}
+	//ROS_INFO("weight_sum: %f", weightSum);
 }
 
 void ParticleFilter::ObserveOdometry(const Vector2f& odom_loc,
@@ -254,10 +354,10 @@ void ParticleFilter::ObserveOdometry(const Vector2f& odom_loc,
 	//float k5 = .2;
 	//float k6 = .2;
 
-	float k1 = .06;
-	float k2 = .06;
-	float k5 = .15;
-	float k6 = .15;
+	float k1 = .03;
+	float k2 = .03;
+	float k5 = .075;
+	float k6 = .075;
 	
 	float odomDiff = dist(odom_loc,prev_odom_loc_); //distance between odom measurements
 	float angleChange = 0;
@@ -349,10 +449,11 @@ void ParticleFilter::Initialize(const string& map_file,
   odom_initialized_ = false;
   //distribut the particles around the car 
   int numParticles = 20;
-  /*
+  
+  
   for(int i = 0; i < numParticles; ++i){
-	 float px = rng_.Gaussian(0, 1) + loc.x();
-	 float py = rng_.Gaussian(0, 1) + loc.y();
+	 float px = rng_.Gaussian(0, 10) + loc.x();
+	 float py = rng_.Gaussian(0, 10) + loc.y();
 	 float pang = angle + rng_.Gaussian(0,M_PI);
 	 const Vector2f newPose(px,py);
 	 Particle new_p = {
@@ -361,8 +462,9 @@ void ParticleFilter::Initialize(const string& map_file,
 			1.0/numParticles,
 		};
 	particles_.push_back(new_p);
-  }*/
+  } 
   
+	/*
     for(int i = 0; i < numParticles; ++i){
 	 float px = loc.x();
 	 float py = loc.y();
@@ -375,7 +477,7 @@ void ParticleFilter::Initialize(const string& map_file,
 		};
 	particles_.push_back(new_p);
 	}
-	
+	*/
 	
 	/*
 	float lag = 0;

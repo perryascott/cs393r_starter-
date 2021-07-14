@@ -153,7 +153,7 @@ float frontL = l/2 + b/2;
  //time optimal control vars
 float maxa = 12; //max acceleration m/s^2
 float maxd = 4; //max deceleration m/s^2
-float vmax = .5; //max speed m/s
+float vmax = .5;//.5; //max speed m/s
 
 
 float deltaT = .05; //time step between calls of Run()
@@ -878,7 +878,7 @@ void Navigation::Run() {
 	//plot the bot
 	
 	//plotCar(0x0000ff,0xff0000);
-	DrawCross(nav_goal_loc_, .1, 0xFF00FF,local_viz_msg_);
+	//DrawCross(nav_goal_loc_, .1, 0xFF00FF,local_viz_msg_);
 	viz_pub_.publish(local_viz_msg_);
 	drive_pub_.publish(drive_msg_);
 	ClearVisualizationMsg(local_viz_msg_);

@@ -65,6 +65,7 @@ using visualization::DrawArc;
 using visualization::DrawPoint;
 using visualization::DrawLine;
 using visualization::DrawParticle;
+using visualization::DrawCross;
 
 // Create command line arguements
 DEFINE_string(laser_topic, "/scan", "Name of ROS topic for LIDAR data");
@@ -119,7 +120,33 @@ void PublishParticles() {
 		}
 		
 	}
+	
 	DrawPoint(max_p.loc,0x0000FF,vis_msg_);
+	
+	/*
+	float weight_sum = 0;
+	float weightMax = INT_MIN;
+	float weightMin = INT_MAX;
+	for (size_t i=0; i<particles.size(); ++i){
+
+		float weight = abs(particles[i].weight);
+		weight_sum += weight;
+		if(weight < weightMin){
+			weightMin = weight;
+		} else if(weight > weightMax){
+			weightMax = weight;
+		}
+	}
+	
+	float crossMax = 2;
+	float crossMin = .01;
+	ROS_INFO("size is %f",weightMin);
+	for (const particle_filter::Particle& p : particles){
+		float size = (abs(p.weight) - weightMin)/(weightMax - weightMin)*(crossMax - crossMin) + crossMin;
+
+		DrawCross(p.loc, size, 0xFF00FF,vis_msg_);
+	}
+	*/
   for (const particle_filter::Particle& p : particles) {
     DrawParticle(p.loc, p.angle, vis_msg_);
 	//DrawPoint(p.loc,0x0000FF,vis_msg_); //for seeing banana distribution
@@ -135,13 +162,13 @@ void PublishPredictedScan() {
   
   //testing purposes
   const Vector2f testLoc(4,7);
-  float testAngle = M_PI/3;
+  //float testAngle = M_PI/3;
   
   particle_filter_.GetPredictedPointCloud(
-      //robot_loc,
-      //robot_angle,
-	  testLoc,
-	  testAngle,
+      robot_loc,
+      robot_angle,
+	  //testLoc,
+	  //testAngle,
       last_laser_msg_.ranges.size(),
       last_laser_msg_.range_min,
       last_laser_msg_.range_max,
@@ -197,7 +224,7 @@ void PublishVisualization() {
   //DrawPoint(things,0x00FF00,vis_msg_);
 
   
-  //PublishPredictedScan();
+  PublishPredictedScan();
  // PublishTrajectory();
   visualization_publisher_.publish(vis_msg_);
 }
@@ -233,7 +260,7 @@ void OdometryCallback(const nav_msgs::Odometry& msg) {
   localization_msg.pose.theta = robot_angle;
  localization_publisher_.publish(localization_msg);
  ////DrawPoint(robot_loc,0x00FF00,vis_msg_);
- //visualization_publisher_.publish(vis_msg_);
+ visualization_publisher_.publish(vis_msg_);
   PublishVisualization();
 }
  
