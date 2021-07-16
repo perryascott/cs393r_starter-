@@ -89,7 +89,7 @@ void ParticleFilter::GetParticles(vector<Particle>* particles) const {
   *particles = particles_;
 }
 
-int scanStep = 4;
+int scanStep = 8;
 void ParticleFilter::GetPredictedPointCloud(const Vector2f& loc,
                                             const float angle,
                                             int num_ranges,
@@ -179,20 +179,19 @@ void ParticleFilter::Update(const vector<float>& ranges,
 	Particle ptcl = *p_ptr;
 	//float score = 0;
 	ParticleFilter::GetPredictedPointCloud(p_ptr->loc,p_ptr->angle,ranges.size(),range_min,range_max,angle_min,angle_max,&prtcl_scan);
-	//float gamma = .5;
-	//float var = .01;
-	float score = 0;
+	float gamma = .5;
+	float var = .1;
+	float coeff = -1.0/2.0*gamma/pow(var,2);
+	long double score = 0;
 	//float coeff = gamma*(-1/(2*pow(var,2)))
 	const Vector2f origin(0,0);
 	for(size_t i=0; i< prtcl_scan.size(); i=i+scanStep){
 		float predict_dist = dist(origin, prtcl_scan[i]);
-		score += -pow(predict_dist - ranges[i],2);
+		score += coeff * pow(predict_dist - ranges[i],2);
 	}
-	if(score == 0){
-		ptcl.weight = INT_MIN;
-	} else {
-	ptcl.weight = 1/score;
-	}
+	//ROS_INFO("particle has score %Lf",score);
+	ptcl.weight = score;
+	//ROS_INFO("particle has weight %f",ptcl.weight);
 	*p_ptr = ptcl;
  // Implement the update step of the particle filter here.
   // You will have to use the `GetPredictedPointCloud` to predict the expected
@@ -222,18 +221,15 @@ void ParticleFilter::Resample() {
   	float weight_sum = 0;
 	for (size_t i=0; i<particles_.size(); ++i){
 		weight_sum += particles_[i].weight;
+		//ROS_INFO("particle %li has weight %f", i, particles_[i].weight);
 	}
 
 
-	int num_particles = 40; //abs(weight_sum*scanStep) / 4;
-	float adjusted_weight_sum = abs(weight_sum) * scanStep;
-	if(adjusted_weight_sum/ > 200){
-		num_particles = 100;
-	} else if(adjusted_weight_sum > 400){
-		num_particles = 400;
-	}
+	int num_particles = 20; //abs(weight_sum*scanStep) / 4;
+	float adjusted_weight_sum = weight_sum * scanStep;
+
 	
-	float M = abs(weight_sum)/num_particles;
+	float M = weight_sum/num_particles;
 	float r = rng_.UniformRandom(0, M);
 	float c = abs(particles_[0].weight);
 	float index = 0;
@@ -242,27 +238,11 @@ void ParticleFilter::Resample() {
 		float U = r + (m*M);
 		while(U > c){
 			index++;
-			c = c + abs(particles_[index].weight);
+			c = c + particles_[index].weight;
 		}
-		float c1 = .0;
-		float c2 = .0;
-		if(abs(weight_sum) / num_particles*scanStep < .001){
-			c1 = .009;
-			c2 = .0001;
-		}
-		else if(abs(weight_sum) / num_particles*scanStep < .5){
-			c1 = .015;
-			c2 = .00025;
-		} else if(abs(weight_sum) / num_particles*scanStep < 4){
-			c1 = .12;
-			c2 = .025;
-		} else if(abs(weight_sum) / num_particles*scanStep < 16.0){
-			c1 = 1.6;
-			c2 = 2.4;
-		} else{
-			c1 = 1.6;
-			c2 = .4;
-		}
+		float c1 = .012;
+		float c2 = .0025;
+
 			float x =  rng_.Gaussian(0, c1) + particles_[index].loc.x();
 			float y = rng_.Gaussian(0, c1) + particles_[index].loc.y();
 			float angle = rng_.Gaussian(0, c2) + particles_[index].angle;
@@ -294,24 +274,23 @@ void ParticleFilter::ObserveLaser(const vector<float>& ranges,
 	}
   
 
-	float weightSum = 0;
+	float maxLogWeight = INT_MIN;
+	
 	for (size_t i=0; i<particles_.size(); ++i){
 		
 		ParticleFilter::Update(ranges, range_min, range_max, angle_min, angle_max, &particles_[i]);
-		weightSum += particles_[i].weight;
-		
+		if(particles_[i].weight > maxLogWeight){
+			maxLogWeight = particles_[i].weight;
+		}
 	}
+	
 	
 	//normalize the weights please
 	for (size_t i=0; i<particles_.size(); ++i){
-		particles_[i].weight = particles_[i].weight/weightSum;
+		particles_[i].weight = exp(particles_[i].weight - maxLogWeight);
 		
 	}
 
-	for (size_t i=0; i<particles_.size(); ++i){
-		particles_[i].weight = particles_[i].weight/weightSum;
-		
-	}
 	if(laserObserveCount % 4 == 0){
 		ParticleFilter::Resample();
 	}
@@ -434,9 +413,9 @@ void ParticleFilter::Initialize(const string& map_file,
   map_.Load(map_file);
   odom_initialized_ = false;
   //distribut the particles around the car 
-  int numParticles = 40;
+  int numParticles = 20;
   
-  
+  /*
   for(int i = 0; i < numParticles; ++i){
 	 float px = rng_.Gaussian(0, 10) + loc.x();
 	 float py = rng_.Gaussian(0, 10) + loc.y();
@@ -448,9 +427,9 @@ void ParticleFilter::Initialize(const string& map_file,
 			1.0/numParticles,
 		};
 	particles_.push_back(new_p);
-  } 
+  } */
   
-	/*
+	
     for(int i = 0; i < numParticles; ++i){
 	 float px = loc.x();
 	 float py = loc.y();
@@ -462,7 +441,7 @@ void ParticleFilter::Initialize(const string& map_file,
 			1.0/numParticles,
 		};
 	particles_.push_back(new_p);
-	}*/
+	}
 	
 	
 	/*
