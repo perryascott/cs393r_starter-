@@ -226,7 +226,12 @@ void ParticleFilter::Resample() {
 
 
 	int num_particles = 40; //abs(weight_sum*scanStep) / 4;
-	float adjusted_weight_sum = abs(weight_sum) / num_particles * scanStep;
+	float adjusted_weight_sum = abs(weight_sum) * scanStep;
+	if(adjusted_weight_sum/ > 200){
+		num_particles = 100;
+	} else if(adjusted_weight_sum > 400){
+		num_particles = 400;
+	}
 	
 	float M = abs(weight_sum)/num_particles;
 	float r = rng_.UniformRandom(0, M);
@@ -249,11 +254,11 @@ void ParticleFilter::Resample() {
 			c1 = .015;
 			c2 = .00025;
 		} else if(abs(weight_sum) / num_particles*scanStep < 4){
-			c1 = .05;
+			c1 = .12;
 			c2 = .025;
 		} else if(abs(weight_sum) / num_particles*scanStep < 16.0){
-			c1 = .4;
-			c2 = .25;
+			c1 = 1.6;
+			c2 = 2.4;
 		} else{
 			c1 = 1.6;
 			c2 = .4;
@@ -307,7 +312,7 @@ void ParticleFilter::ObserveLaser(const vector<float>& ranges,
 		particles_[i].weight = particles_[i].weight/weightSum;
 		
 	}
-	if(laserObserveCount % 2 == 0){
+	if(laserObserveCount % 4 == 0){
 		ParticleFilter::Resample();
 	}
 	//ROS_INFO("weight_sum: %f", weightSum);
@@ -431,7 +436,7 @@ void ParticleFilter::Initialize(const string& map_file,
   //distribut the particles around the car 
   int numParticles = 40;
   
-  /*
+  
   for(int i = 0; i < numParticles; ++i){
 	 float px = rng_.Gaussian(0, 10) + loc.x();
 	 float py = rng_.Gaussian(0, 10) + loc.y();
@@ -443,9 +448,9 @@ void ParticleFilter::Initialize(const string& map_file,
 			1.0/numParticles,
 		};
 	particles_.push_back(new_p);
-  } */
+  } 
   
-	
+	/*
     for(int i = 0; i < numParticles; ++i){
 	 float px = loc.x();
 	 float py = loc.y();
@@ -457,7 +462,7 @@ void ParticleFilter::Initialize(const string& map_file,
 			1.0/numParticles,
 		};
 	particles_.push_back(new_p);
-	}
+	}*/
 	
 	
 	/*

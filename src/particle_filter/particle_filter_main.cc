@@ -224,7 +224,7 @@ void PublishVisualization() {
   //DrawPoint(things,0x00FF00,vis_msg_);
 
   
-  PublishPredictedScan();
+  //PublishPredictedScan();
  // PublishTrajectory();
   visualization_publisher_.publish(vis_msg_);
 }
