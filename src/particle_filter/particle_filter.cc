@@ -240,8 +240,8 @@ void ParticleFilter::Resample() {
 			index++;
 			c = c + particles_[index].weight;
 		}
-		float c1 = .012;
-		float c2 = .0025;
+		float c1 = 0;
+		float c2 = 0;
 
 			float x =  rng_.Gaussian(0, c1) + particles_[index].loc.x();
 			float y = rng_.Gaussian(0, c1) + particles_[index].loc.y();
@@ -319,10 +319,12 @@ void ParticleFilter::ObserveOdometry(const Vector2f& odom_loc,
 	//float k5 = .2;
 	//float k6 = .2;
 
-	float k1 = .03;
-	float k2 = .03;
-	float k5 = .075;
-	float k6 = .075;
+	float k1 = .2;
+	float k2 = .2;
+	float k3 = .1;
+	float k4 = .1;
+	float k5 = .2;
+	float k6 = .2;
 	
 	float odomDiff = dist(odom_loc,prev_odom_loc_); //distance between odom measurements
 	float angleChange = 0;
@@ -362,7 +364,7 @@ void ParticleFilter::ObserveOdometry(const Vector2f& odom_loc,
 			float v2y = v1y + refDeltaY*cos(v1angle) + refDeltaX*sin(v1angle);//mean y after propagation
 
 			float Xnoise = dist*cos(deltaAng) - s;
-			float Ynoise = dist*sin(deltaAng);
+			float Ynoise = dist*sin(deltaAng) + rng_.Gaussian(0, k3*s + k4*abs(angleChange));
 			
 			float finalAngle = v1angle + angleChange + deltaAng;
 			
