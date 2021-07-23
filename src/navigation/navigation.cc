@@ -34,7 +34,7 @@
 #include "shared/ros/ros_helpers.h"
 #include "navigation.h"
 #include "visualization/visualization.h"
-
+#include "shared/math/geometry.h"
 
 #include <iostream>  
 #include <string>     
@@ -51,6 +51,8 @@ using visualization::DrawPoint;
 using visualization::DrawLine;
 using visualization::DrawArc;
 using visualization::ClearVisualizationMsg;
+using geometry::line2f;
+
 
 using namespace math_util;
 using namespace ros_helpers;
@@ -94,6 +96,8 @@ Navigation::Navigation(const string& map_file, ros::NodeHandle* n) :
 
 float goalAngle = 0;
 static Vector2f goalLocation(0,0);
+//vector_map::VectorMap map_;
+vector_map::VectorMap map_ = vector_map::VectorMap("maps/GDC2.txt");
 
 void Navigation::SetNavGoal(const Vector2f& loc, float angle) {
 	goalAngle = angle;
@@ -813,11 +817,101 @@ float * refine( float roughCurve){
 	scoreArr1[1] = curves1[maxIndex];
 	return scoreArr1;
 }
+//GRAPH SEARCH -------------------------------------------------------------------------------
+void addEdge(vector<int> graph[], int u, int v){
+	graph[u].push_back(v);
+	graph[v].push_back(u);
+}
+
+bool checkObstacle(const Vector2f& vect1, const Vector2f& vect2){
+	
+	line2f rayLine(vect1.x(),vect1.y(), vect2.x(),vect2.y());
+	
+	for (size_t i = 0; i < map_.lines.size(); ++i) {
+		const line2f map_line = map_.lines[i];
+		bool intersects = map_line.Intersects(rayLine);
+
+		Vector2f intersection_point; 
+		intersects = map_line.Intersection(rayLine, &intersection_point);
+
+		if (intersects) {
+			return false;
+		} 
+	}
+	return true;
+}
+
+void BFS(){
+	/*
+	int map_width_left = 24*2; //meters
+	int map_width_right = 23*2; //meters
+	int map_height_top = 18*2;//meters
+	int map_height_bottom = 18*2;//meters */
+	
+	int map_width_left = 4*2; //meters
+	int map_width_right = 4*2; //meters
+	int map_height_top = 4*2;//meters
+	int map_height_bottom = 4*2;//meters
+	
+	float map_res = .25; //meters
+	
+	int row_length = (map_width_left + map_width_right )/map_res;
+	int col_height = (map_height_top + map_height_bottom )/map_res;
+	
+	int size = col_height * row_length;
+	vector<int> graph[size];
+	
+	map_.Load( "maps/GDC2.txt");
+	
+	
+	//create graph 
+	for(int i = 0; i < size; i++){
+		const Vector2f point1(((i%row_length)-map_width_left/map_res)*map_res + map_res/2, (map_height_top/map_res - (i/row_length))*map_res - map_res/2);
+		
+		if(i >= row_length){
+			int i2 = i - row_length;
+			const Vector2f point2(((i2%row_length)-map_width_left/map_res)*map_res + map_res/2, (map_height_top/map_res - (i2/row_length))*map_res - map_res/2);
+			if(checkObstacle(point1,point2)){
+				addEdge(graph, i, i-row_length);
+				DrawLine(point1,point2, 0x77fc03,local_viz_msg_);
+			}
+		}
+		if(i % row_length != 0){
+			int i2 = i - 1;
+			const Vector2f point2(((i2%row_length)-map_width_left/map_res)*map_res + map_res/2, (map_height_top/map_res - (i2/row_length))*map_res - map_res/2);
+			if(checkObstacle(point1,point2)){
+				addEdge(graph, i, i-1);
+				DrawLine(point1,point2, 0x77fc03,local_viz_msg_);
+			}
+		}
+		if(i < size - row_length){
+			int i2 = i + row_length;
+			const Vector2f point2(((i2%row_length)-map_width_left/map_res)*map_res + map_res/2, (map_height_top/map_res - (i2/row_length))*map_res - map_res/2);
+			if(checkObstacle(point1,point2)){
+				addEdge(graph, i, i+row_length);
+				DrawLine(point1,point2, 0x77fc03,local_viz_msg_);
+			}
+		}
+		if(i % row_length != row_length -1){
+			int i2 = i + 1;
+			const Vector2f point2(((i2%row_length)-map_width_left/map_res)*map_res + map_res/2, (map_height_top/map_res - (i2/row_length))*map_res - map_res/2);
+			if(checkObstacle(point1,point2)){
+				addEdge(graph, i, i+1);
+				DrawLine(point1,point2, 0x77fc03,local_viz_msg_);
+			}
+		}
+	}
+	
+	
+	return;
+}
+
+
 //MAIN -------------------------------------------------------------------------------------------------
 void Navigation::Run() {
 		
 	//gather speed information
-	float velMag = mag(robot_vel_);
+	//float velMag = mag(robot_vel_);
 
 	//initialize 
     if (runCount < 8){
@@ -826,12 +920,23 @@ void Navigation::Run() {
 		runCount++;
 		//const Vector2f startLocation(actualLocation.x(),actualLocation.y());
 		ROS_INFO("initializing starting odometry");
+		ClearVisualizationMsg(local_viz_msg_);
     } 
-	drive_msg_.curvature = .3;
+	drive_msg_.curvature = 0;
+	drive_msg_.velocity = 0;
+	
+	if(runCount == 8){
+		BFS();
+		runCount++;
+	}
+	
      //find longest free path for given curvature
+	 /*
 	float *odVars1;
 	odVars1 = ShortestPathOD(drive_msg_.curvature,true, 0);
 	TOC(*(odVars1),velMag);
+	*/
+	
 	//if((goalLocation.x() != 0)&&(goalLocation.y() != 0)){
 		
 		/*
@@ -881,7 +986,7 @@ void Navigation::Run() {
 	//DrawCross(nav_goal_loc_, .1, 0xFF00FF,local_viz_msg_);
 	viz_pub_.publish(local_viz_msg_);
 	drive_pub_.publish(drive_msg_);
-	ClearVisualizationMsg(local_viz_msg_);
+	//ClearVisualizationMsg(local_viz_msg_);
 
 }  // namespace navigation
 

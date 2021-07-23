@@ -22,6 +22,7 @@
 #include <vector>
 
 #include "eigen3/Eigen/Dense"
+#include "vector_map/vector_map.h"
 
 #ifndef NAVIGATION_H
 #define NAVIGATION_H

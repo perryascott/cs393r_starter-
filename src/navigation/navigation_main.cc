@@ -44,6 +44,7 @@
 #include "ros/ros.h"
 #include "shared/math/math_util.h"
 #include "shared/util/timer.h"
+#include "vector_map/vector_map.h"
 #include "shared/ros/ros_helpers.h"
 
 #include "navigation.h"
@@ -62,6 +63,7 @@ using std::vector;
 using Eigen::Vector2f;
 
 // Create command line arguments
+//CONFIG_STRING(map_name_, "map");
 DEFINE_string(laser_topic, "scan", "Name of ROS topic for LIDAR data");
 DEFINE_string(odom_topic, "odom", "Name of ROS topic for odometry data");
 DEFINE_string(loc_topic, "localization", "Name of ROS topic for localization");
@@ -69,11 +71,12 @@ DEFINE_string(truePose_topic, "truePost", "Name of ROS topic for truePose");
 DEFINE_string(init_topic,
               "initialpose",
               "Name of ROS topic for initialization");
-DEFINE_string(map, "maps/GDC1.txt", "Name of vector map file");
+DEFINE_string(map, "maps/GDC2.txt", "Name of vector map file");
 
 bool run_ = true;
 sensor_msgs::LaserScan last_laser_msg_;
 Navigation* navigation_ = nullptr;
+vector_map::VectorMap map_;
 
 void LaserCallback(const sensor_msgs::LaserScan& msg) {
   int rangeSize = msg.ranges.size();
@@ -172,7 +175,7 @@ int main(int argc, char** argv) {
   ros::init(argc, argv, "navigation", ros::init_options::NoSigintHandler);
   ros::NodeHandle n;
   navigation_ = new Navigation(FLAGS_map, &n);
-
+  map_ = vector_map::VectorMap("maps/GDC2.txt");
   ros::Subscriber velocity_sub =
       n.subscribe(FLAGS_odom_topic, 1, &OdometryCallback);
   ros::Subscriber localization_sub =
