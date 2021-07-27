@@ -113,10 +113,10 @@ int map_height_top = 11*2;//meters
 int map_height_bottom = 18*2;//meters 
 */
 
-int map_width_left = 2*2; //meters
-int map_width_right = 2*2; //meters
-int map_height_top = 2*2;//meters
-int map_height_bottom = 2*2;//meters
+int map_width_left = 10*2; //meters
+int map_width_right = 10*2; //meters
+int map_height_top = 10*2;//meters
+int map_height_bottom = 10*2;//meters
 
 
 float map_res = .25; //meters
@@ -129,7 +129,7 @@ int row_length = (map_width_left + map_width_right )/map_res;
 int col_height = (map_height_top + map_height_bottom )/map_res;
 
 map<int, int> came_from = {{start_index, -1}}; //node #, node # it came from 
-
+map<int, int> cost_so_far = {{start_index, 0}}; //node #, node # it came from 
 void plotCameFrom(int node1, int node2, int color){
 
 	const Vector2f vect1((node1 % row_length)*map_res - map_width_left+map_res/2,map_height_top - (node1 / row_length)*map_res - map_res/2);
@@ -150,7 +150,7 @@ void addEdge(vector<int> graph[], int u, int v){
 }
 
 bool checkObstacle(const Vector2f& vect1, const Vector2f& vect2){
-	
+
 	line2f rayLine(vect1.x(),vect1.y(), vect2.x(),vect2.y());
 	
 	for (size_t i = 0; i < map_.lines.size(); ++i) {
@@ -167,7 +167,7 @@ bool checkObstacle(const Vector2f& vect1, const Vector2f& vect2){
 	return true;
 }
 
-
+/*
 void selectionSort(int proximity[], int neighbor[], int size){
 
 	for(int i = 0; i < size; ++i){
@@ -188,11 +188,25 @@ void selectionSort(int proximity[], int neighbor[], int size){
 
 	}
 }
-	
+*/
+
 float hueristic(int node_index){
 	float x = (node_index % row_length)-(nav_index % row_length);
 	float y = (node_index / row_length) - (nav_index/ row_length);
 	return sqrt(pow(x, 2) + pow(y, 2));
+}
+
+int minimumNode(map<int, float> &temp_map){
+	//search for node value with minimum proximity
+	int min_key = 0;
+	float min_value = INT_MAX;
+	for(auto const& x : temp_map){
+		if(x.second < min_value){
+			min_value = x.second;
+			min_key = x.first;
+		}
+	}
+	return min_key;
 }
 
 void BFS(){
@@ -266,25 +280,29 @@ void BFS(){
 		
 	}
 
+
+
 	map<int, float> queueOrder = {{start_index, hueristic(start_index)}}; //node # and proximity
 	ROS_INFO("proximity = %f", hueristic(start_index));
-	//queue<int> frontier;
-	//frontier.push(start_index);
-	came_from[start_index] = -1;
 
+	came_from[start_index] = -1;
+	cost_so_far[start_index] = 0;
 	while(!queueOrder.empty()){
 
 		
-		int current_node = frontier.front();
-		frontier.pop();
+		int current_node = minimumNode(queueOrder);
+		queueOrder.erase(current_node);
+		
 		if(current_node == nav_index){
 			break;
 		}
 		//ROS_INFO("current node = %i",current_node);
 		for (int i : graph[current_node]){
 			if(came_from.find(i) == came_from.end()){
-				frontier.push(i);
+				float cost = hueristic(i) + map_res + cost_so_far[current_node];
+				queueOrder.insert(std::pair<int,float>(i,cost));
 				came_from[i] = current_node;
+				cost_so_far[i] = cost;
 				plotCameFrom(i,current_node, 0x77fc03);
 			}
 		}
@@ -304,6 +322,7 @@ void Navigation::UpdateTruePose(const Eigen::Vector2f& loc, float angle) {
 		const Vector2f quantLoc((start_index % row_length)*map_res - map_width_left+map_res/2,map_height_top - (start_index / row_length)*map_res - map_res/2);
 		DrawCross(quantLoc, .1, 0xFF00FF,local_viz_msg_);
 		came_from.clear();
+		cost_so_far.clear();
 		ClearVisualizationMsg(local_viz_msg_);
 		ROS_INFO("helo");
 		BFS();
