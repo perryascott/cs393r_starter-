@@ -38,6 +38,7 @@
 
 #include <iostream>  
 #include <string>     
+#include <queue>
 
 using Eigen::Vector2f;
 using amrl_msgs::AckermannCurvatureDriveMsg;
@@ -52,7 +53,8 @@ using visualization::DrawLine;
 using visualization::DrawArc;
 using visualization::ClearVisualizationMsg;
 using geometry::line2f;
-
+using std::map;
+using std::queue;
 
 using namespace math_util;
 using namespace ros_helpers;
@@ -94,24 +96,244 @@ Navigation::Navigation(const string& map_file, ros::NodeHandle* n) :
     
 }
 
+
+
 float goalAngle = 0;
 static Vector2f goalLocation(0,0);
 //vector_map::VectorMap map_;
 vector_map::VectorMap map_ = vector_map::VectorMap("maps/GDC2.txt");
+
+float actualAngle = 0;
+static Vector2f actualLocation(0,0);
+
+/*
+int map_width_left = 22*2; //meters
+int map_width_right = 22*2; //meters
+int map_height_top = 11*2;//meters
+int map_height_bottom = 18*2;//meters 
+*/
+
+int map_width_left = 2*2; //meters
+int map_width_right = 2*2; //meters
+int map_height_top = 2*2;//meters
+int map_height_bottom = 2*2;//meters
+
+
+float map_res = .25; //meters
+
+float start_x = 0;
+float start_y = 0;
+int start_index = 0;
+
+int row_length = (map_width_left + map_width_right )/map_res;
+int col_height = (map_height_top + map_height_bottom )/map_res;
+
+map<int, int> came_from = {{start_index, -1}}; //node #, node # it came from 
+
+void plotCameFrom(int node1, int node2, int color){
+
+	const Vector2f vect1((node1 % row_length)*map_res - map_width_left+map_res/2,map_height_top - (node1 / row_length)*map_res - map_res/2);
+	const Vector2f vect2((node2 % row_length)*map_res - map_width_left+map_res/2,map_height_top - (node2 / row_length)*map_res - map_res/2);
+	DrawLine(vect1,vect2, color,local_viz_msg_);
+	return;
+}
+
+//GRAPH SEARCH -------------------------------------------------------------------------------
+float nav_x = 0;
+float nav_y = 0;
+int nav_index = 0;
+
+void addEdge(vector<int> graph[], int u, int v){
+	graph[u].push_back(v);
+	graph[v].push_back(u);
+	return;
+}
+
+bool checkObstacle(const Vector2f& vect1, const Vector2f& vect2){
+	
+	line2f rayLine(vect1.x(),vect1.y(), vect2.x(),vect2.y());
+	
+	for (size_t i = 0; i < map_.lines.size(); ++i) {
+		const line2f map_line = map_.lines[i];
+		bool intersects = map_line.Intersects(rayLine);
+
+		Vector2f intersection_point; 
+		intersects = map_line.Intersection(rayLine, &intersection_point);
+
+		if (intersects) {
+			return false;
+		} 
+	}
+	return true;
+}
+
+
+void selectionSort(int proximity[], int neighbor[], int size){
+
+	for(int i = 0; i < size; ++i){
+		int min_index = i;
+		int min_proximity = proximity[i];
+		int min_proximity_neighbor = neighbor[i];
+		for(int j = i+1; j< size; ++j){
+			if(proximity[j] < min_proximity){
+				min_proximity_neighbor = neighbor[j];
+				min_proximity = proximity[j];
+				min_index = j;
+			}
+		}
+		proximity[min_index] = proximity[i];
+		proximity[i] = min_proximity;
+		neighbor[min_index] = neighbor[i];
+		neighbor[i] = min_proximity_neighbor;
+
+	}
+}
+	
+float hueristic(int node_index){
+	float x = (node_index % row_length)-(nav_index % row_length);
+	float y = (node_index / row_length) - (nav_index/ row_length);
+	return sqrt(pow(x, 2) + pow(y, 2));
+}
+
+void BFS(){
+
+	int row_length = (map_width_left + map_width_right )/map_res;
+	int col_height = (map_height_top + map_height_bottom )/map_res;
+	
+	int size = col_height * row_length;
+	
+	vector<int> graph[size];
+	map_.Load( "maps/GDC2.txt");
+	//create graph 
+	for(int i = 0; i < size; i++){
+		const Vector2f point1(((i%row_length)-map_width_left/map_res)*map_res + map_res/2, (map_height_top/map_res - (i/row_length))*map_res - map_res/2);
+		//above 
+		if(i >= row_length){
+			int i2 = i - row_length;
+			const Vector2f point2(((i2%row_length)-map_width_left/map_res)*map_res + map_res/2, (map_height_top/map_res - (i2/row_length))*map_res - map_res/2);
+			if(checkObstacle(point1,point2)){
+				addEdge(graph, i, i2);
+				//DrawLine(point1,point2, 0x77fc03,local_viz_msg_);
+			}
+		}
+		//below
+		if((i/row_length) != (col_height - 1)){
+			int i2 = i + row_length;
+			const Vector2f point2(((i2%row_length)-map_width_left/map_res)*map_res + map_res/2, (map_height_top/map_res - (i2/row_length))*map_res - map_res/2);
+			if(checkObstacle(point1,point2)){
+				addEdge(graph, i, i2);
+				//DrawLine(point1,point2, 0x77fc03,local_viz_msg_);
+			}
+		}
+			
+		//left of
+		if(i % row_length != 0){
+			int i2 = i - 1;
+			const Vector2f point2(((i2%row_length)-map_width_left/map_res)*map_res + map_res/2, (map_height_top/map_res - (i2/row_length))*map_res - map_res/2);
+			if(checkObstacle(point1,point2)){
+				addEdge(graph, i, i2);
+				//DrawLine(point1,point2, 0x77fc03,local_viz_msg_);
+			}
+		}
+		//right of 
+		if((i % row_length != row_length - 1)){
+			int i2 = i + 1;
+			const Vector2f point2(((i2%row_length)-map_width_left/map_res)*map_res + map_res/2, (map_height_top/map_res - (i2/row_length))*map_res - map_res/2);
+			if(checkObstacle(point1,point2)){
+				addEdge(graph, i, i2);
+				//DrawLine(point1,point2, 0x77fc03,local_viz_msg_);
+			}
+		}
+		
+		//left and above
+		if(i >= row_length && i % row_length != 0){
+			int i2 = i - 1 - row_length;
+			const Vector2f point2(((i2%row_length)-map_width_left/map_res)*map_res + map_res/2, (map_height_top/map_res - (i2/row_length))*map_res - map_res/2);
+			if(checkObstacle(point1,point2)){
+				addEdge(graph, i, i2);
+				//DrawLine(point1,point2, 0x77fc03,local_viz_msg_);
+			}
+		}
+		//above and right
+		if((i % row_length != row_length - 1)&&(i >= row_length)){
+			int i2 = i + 1 - row_length;
+			const Vector2f point2(((i2%row_length)-map_width_left/map_res)*map_res + map_res/2, (map_height_top/map_res - (i2/row_length))*map_res - map_res/2);
+			if(checkObstacle(point1,point2)){
+				addEdge(graph, i, i2);
+				//DrawLine(point1,point2, 0x77fc03,local_viz_msg_);
+			}
+		}	
+		
+	}
+
+	map<int, float> queueOrder = {{start_index, hueristic(start_index)}}; //node # and proximity
+	ROS_INFO("proximity = %f", hueristic(start_index));
+	//queue<int> frontier;
+	//frontier.push(start_index);
+	came_from[start_index] = -1;
+
+	while(!queueOrder.empty()){
+
+		
+		int current_node = frontier.front();
+		frontier.pop();
+		if(current_node == nav_index){
+			break;
+		}
+		//ROS_INFO("current node = %i",current_node);
+		for (int i : graph[current_node]){
+			if(came_from.find(i) == came_from.end()){
+				frontier.push(i);
+				came_from[i] = current_node;
+				plotCameFrom(i,current_node, 0x77fc03);
+			}
+		}
+		
+	}
+	return;
+}
+
+void Navigation::UpdateTruePose(const Eigen::Vector2f& loc, float angle) {
+	if(loc != actualLocation){
+		actualLocation = loc;
+		actualAngle = angle;
+		start_x = round((actualLocation.x() +map_width_left  - map_res/2) / map_res);
+		start_y = round((map_height_top - actualLocation.y() + map_res/2)/ map_res ) -1;
+		start_index = start_y * row_length + start_x;
+		//const Vector2f quantLoc(start_x*map_res - map_width_left+map_res/2,map_height_top - start_y*map_res  - map_res/2 );
+		const Vector2f quantLoc((start_index % row_length)*map_res - map_width_left+map_res/2,map_height_top - (start_index / row_length)*map_res - map_res/2);
+		DrawCross(quantLoc, .1, 0xFF00FF,local_viz_msg_);
+		came_from.clear();
+		ClearVisualizationMsg(local_viz_msg_);
+		ROS_INFO("helo");
+		BFS();
+
+	}
+	
+
+	
+
+}
 
 void Navigation::SetNavGoal(const Vector2f& loc, float angle) {
 	goalAngle = angle;
 	goalLocation = loc;
     nav_goal_loc_ = loc;
     nav_goal_angle_ = angle;
-}
-float actualAngle = 0;
-static Vector2f actualLocation(0,0);
+	
+	nav_x = round((goalLocation.x() +map_width_left  - map_res/2) / map_res);
+	nav_y = round((map_height_top - goalLocation.y() + map_res/2)/ map_res ) -1;
+	nav_index = nav_y * row_length + nav_x;
+	//const Vector2f quantLoc(start_x*map_res - map_width_left+map_res/2,map_height_top - start_y*map_res  - map_res/2 );
+	const Vector2f quantLoc((nav_index % row_length)*map_res - map_width_left+map_res/2,map_height_top - (nav_index / row_length)*map_res - map_res/2);
+	DrawCross(quantLoc, .1, 0xFFFF00,local_viz_msg_);
 
-void Navigation::UpdateTruePose(const Eigen::Vector2f& loc, float angle) {
-	actualLocation = loc;
-	actualAngle = angle;
+	int i = nav_index;
+	while(came_from[i] != -1){
 
+		plotCameFrom(i, came_from[i], 0x000000);
+		i = came_from[i];
+	}
 }
 
 void Navigation::UpdateLocation(const Eigen::Vector2f& loc, float angle) {
@@ -166,14 +388,7 @@ float minStopDist = 0;
 int runCount = 0;
 float startOdomY = 0;
 float startOdomX = 0;
-//float currentOdomY = 0;
-//float currentOdomX = 0;
 
-//float absDiffX = 0;
-//float absDiffY = 0;
-//float magDiff = 0;
-//float s = 0;
-//float phi = 0;
 
 float r = 0;
 const Vector2f zeroLocation(0,0);
@@ -330,22 +545,8 @@ void plotCar(int color1,int color2){
 	DrawLine(fl,fr, color2,local_viz_msg_); 
 
 }
-/*
-void plotPossibleCurve(float curve, float rCent, float ang_dist,float ang_offset,int color){
-	
-	float rad=abs(1/curve); 
 
-	const Vector2f center(actualLocation.x() - rSign*rCent*sin(actualAngle),actualLocation.y() + rSign*rCent*cos(actualAngle));
-	float start_angle = atan2(actualLocation.y()-center.y(),actualLocation.x()-center.x());
 
-	if(curve<0){
-		DrawArc(center, rad ,start_angle - (ang_dist+ang_offset),start_angle - (ang_offset),color,local_viz_msg_) ;
-	}
-	else{
-		DrawArc(center, rad ,start_angle+(ang_offset),start_angle+(ang_dist+ang_offset),color,local_viz_msg_) ;
-	}  
-}
-*/
 //TIME OPTIMAL CONTROL ---------------------------------------------------
 
 void TOC(float dist, float velMag){
@@ -817,95 +1018,6 @@ float * refine( float roughCurve){
 	scoreArr1[1] = curves1[maxIndex];
 	return scoreArr1;
 }
-//GRAPH SEARCH -------------------------------------------------------------------------------
-void addEdge(vector<int> graph[], int u, int v){
-	graph[u].push_back(v);
-	graph[v].push_back(u);
-}
-
-bool checkObstacle(const Vector2f& vect1, const Vector2f& vect2){
-	
-	line2f rayLine(vect1.x(),vect1.y(), vect2.x(),vect2.y());
-	
-	for (size_t i = 0; i < map_.lines.size(); ++i) {
-		const line2f map_line = map_.lines[i];
-		bool intersects = map_line.Intersects(rayLine);
-
-		Vector2f intersection_point; 
-		intersects = map_line.Intersection(rayLine, &intersection_point);
-
-		if (intersects) {
-			return false;
-		} 
-	}
-	return true;
-}
-
-void BFS(){
-	/*
-	int map_width_left = 24*2; //meters
-	int map_width_right = 23*2; //meters
-	int map_height_top = 18*2;//meters
-	int map_height_bottom = 18*2;//meters */
-	
-	int map_width_left = 4*2; //meters
-	int map_width_right = 4*2; //meters
-	int map_height_top = 4*2;//meters
-	int map_height_bottom = 4*2;//meters
-	
-	float map_res = .25; //meters
-	
-	int row_length = (map_width_left + map_width_right )/map_res;
-	int col_height = (map_height_top + map_height_bottom )/map_res;
-	
-	int size = col_height * row_length;
-	vector<int> graph[size];
-	
-	map_.Load( "maps/GDC2.txt");
-	
-	
-	//create graph 
-	for(int i = 0; i < size; i++){
-		const Vector2f point1(((i%row_length)-map_width_left/map_res)*map_res + map_res/2, (map_height_top/map_res - (i/row_length))*map_res - map_res/2);
-		
-		if(i >= row_length){
-			int i2 = i - row_length;
-			const Vector2f point2(((i2%row_length)-map_width_left/map_res)*map_res + map_res/2, (map_height_top/map_res - (i2/row_length))*map_res - map_res/2);
-			if(checkObstacle(point1,point2)){
-				addEdge(graph, i, i-row_length);
-				DrawLine(point1,point2, 0x77fc03,local_viz_msg_);
-			}
-		}
-		if(i % row_length != 0){
-			int i2 = i - 1;
-			const Vector2f point2(((i2%row_length)-map_width_left/map_res)*map_res + map_res/2, (map_height_top/map_res - (i2/row_length))*map_res - map_res/2);
-			if(checkObstacle(point1,point2)){
-				addEdge(graph, i, i-1);
-				DrawLine(point1,point2, 0x77fc03,local_viz_msg_);
-			}
-		}
-		if(i < size - row_length){
-			int i2 = i + row_length;
-			const Vector2f point2(((i2%row_length)-map_width_left/map_res)*map_res + map_res/2, (map_height_top/map_res - (i2/row_length))*map_res - map_res/2);
-			if(checkObstacle(point1,point2)){
-				addEdge(graph, i, i+row_length);
-				DrawLine(point1,point2, 0x77fc03,local_viz_msg_);
-			}
-		}
-		if(i % row_length != row_length -1){
-			int i2 = i + 1;
-			const Vector2f point2(((i2%row_length)-map_width_left/map_res)*map_res + map_res/2, (map_height_top/map_res - (i2/row_length))*map_res - map_res/2);
-			if(checkObstacle(point1,point2)){
-				addEdge(graph, i, i+1);
-				DrawLine(point1,point2, 0x77fc03,local_viz_msg_);
-			}
-		}
-	}
-	
-	
-	return;
-}
-
 
 //MAIN -------------------------------------------------------------------------------------------------
 void Navigation::Run() {
@@ -920,15 +1032,11 @@ void Navigation::Run() {
 		runCount++;
 		//const Vector2f startLocation(actualLocation.x(),actualLocation.y());
 		ROS_INFO("initializing starting odometry");
-		ClearVisualizationMsg(local_viz_msg_);
+		//ClearVisualizationMsg(local_viz_msg_);
     } 
 	drive_msg_.curvature = 0;
 	drive_msg_.velocity = 0;
 	
-	if(runCount == 8){
-		BFS();
-		runCount++;
-	}
 	
      //find longest free path for given curvature
 	 /*
