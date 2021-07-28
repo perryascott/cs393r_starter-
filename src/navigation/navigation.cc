@@ -97,7 +97,7 @@ Navigation::Navigation(const string& map_file, ros::NodeHandle* n) :
 }
 
 
-
+bool init_complete = false;
 float goalAngle = 0;
 static Vector2f goalLocation(0,0);
 //vector_map::VectorMap map_;
@@ -106,18 +106,19 @@ vector_map::VectorMap map_ = vector_map::VectorMap("maps/GDC2.txt");
 float actualAngle = 0;
 static Vector2f actualLocation(0,0);
 
-/*
+
 int map_width_left = 22*2; //meters
 int map_width_right = 22*2; //meters
 int map_height_top = 11*2;//meters
 int map_height_bottom = 18*2;//meters 
+
+
+/*
+int map_width_left = 8*2; //meters
+int map_width_right = 1*2; //meters
+int map_height_top = 4.5*2;//meters
+int map_height_bottom = 1*2;//meters
 */
-
-int map_width_left = 10*2; //meters
-int map_width_right = 10*2; //meters
-int map_height_top = 10*2;//meters
-int map_height_bottom = 10*2;//meters
-
 
 float map_res = .25; //meters
 
@@ -129,7 +130,7 @@ int row_length = (map_width_left + map_width_right )/map_res;
 int col_height = (map_height_top + map_height_bottom )/map_res;
 
 map<int, int> came_from = {{start_index, -1}}; //node #, node # it came from 
-map<int, int> cost_so_far = {{start_index, 0}}; //node #, node # it came from 
+map<int, float> cost_so_far = {{start_index, 0}}; //node #, node # it came from 
 void plotCameFrom(int node1, int node2, int color){
 
 	const Vector2f vect1((node1 % row_length)*map_res - map_width_left+map_res/2,map_height_top - (node1 / row_length)*map_res - map_res/2);
@@ -167,28 +168,7 @@ bool checkObstacle(const Vector2f& vect1, const Vector2f& vect2){
 	return true;
 }
 
-/*
-void selectionSort(int proximity[], int neighbor[], int size){
 
-	for(int i = 0; i < size; ++i){
-		int min_index = i;
-		int min_proximity = proximity[i];
-		int min_proximity_neighbor = neighbor[i];
-		for(int j = i+1; j< size; ++j){
-			if(proximity[j] < min_proximity){
-				min_proximity_neighbor = neighbor[j];
-				min_proximity = proximity[j];
-				min_index = j;
-			}
-		}
-		proximity[min_index] = proximity[i];
-		proximity[i] = min_proximity;
-		neighbor[min_index] = neighbor[i];
-		neighbor[i] = min_proximity_neighbor;
-
-	}
-}
-*/
 
 float hueristic(int node_index){
 	float x = (node_index % row_length)-(nav_index % row_length);
@@ -209,6 +189,88 @@ int minimumNode(map<int, float> &temp_map){
 	return min_key;
 }
 
+void generateNeighbors(vector<int> graph[], int i){
+	
+	const Vector2f point1(((i%row_length)-map_width_left/map_res)*map_res + map_res/2, (map_height_top/map_res - (i/row_length))*map_res - map_res/2);
+	//above 
+	if(i >= row_length){
+		int i2 = i - row_length;
+		const Vector2f point2(((i2%row_length)-map_width_left/map_res)*map_res + map_res/2, (map_height_top/map_res - (i2/row_length))*map_res - map_res/2);
+		if(checkObstacle(point1,point2)){
+			addEdge(graph, i, i2);
+			//DrawLine(point1,point2, 0x77fc03,local_viz_msg_);
+		}
+	}
+	//below
+	if((i/row_length) != (col_height - 1)){
+		int i2 = i + row_length;
+		const Vector2f point2(((i2%row_length)-map_width_left/map_res)*map_res + map_res/2, (map_height_top/map_res - (i2/row_length))*map_res - map_res/2);
+		if(checkObstacle(point1,point2)){
+			addEdge(graph, i, i2);
+			//DrawLine(point1,point2, 0x77fc03,local_viz_msg_);
+		}
+	}
+		
+	//left of
+	if(i % row_length != 0){
+		int i2 = i - 1;
+		const Vector2f point2(((i2%row_length)-map_width_left/map_res)*map_res + map_res/2, (map_height_top/map_res - (i2/row_length))*map_res - map_res/2);
+		if(checkObstacle(point1,point2)){
+			addEdge(graph, i, i2);
+			//DrawLine(point1,point2, 0x77fc03,local_viz_msg_);
+		}
+	}
+	//right of 
+	if((i % row_length != row_length - 1)){
+		int i2 = i + 1;
+		const Vector2f point2(((i2%row_length)-map_width_left/map_res)*map_res + map_res/2, (map_height_top/map_res - (i2/row_length))*map_res - map_res/2);
+		if(checkObstacle(point1,point2)){
+			addEdge(graph, i, i2);
+			//DrawLine(point1,point2, 0x77fc03,local_viz_msg_);
+		}
+	}
+	
+	//left and above
+	if(i >= row_length && i % row_length != 0){
+		int i2 = i - 1 - row_length;
+		const Vector2f point2(((i2%row_length)-map_width_left/map_res)*map_res + map_res/2, (map_height_top/map_res - (i2/row_length))*map_res - map_res/2);
+		if(checkObstacle(point1,point2)){
+			addEdge(graph, i, i2);
+			//DrawLine(point1,point2, 0x77fc03,local_viz_msg_);
+		}
+	}
+	//above and right
+	if((i % row_length != row_length - 1)&&(i >= row_length)){
+		int i2 = i + 1 - row_length;
+		const Vector2f point2(((i2%row_length)-map_width_left/map_res)*map_res + map_res/2, (map_height_top/map_res - (i2/row_length))*map_res - map_res/2);
+		if(checkObstacle(point1,point2)){
+			addEdge(graph, i, i2);
+			//DrawLine(point1,point2, 0x77fc03,local_viz_msg_);
+		}
+	}	
+
+	//left and below
+	if((i/row_length) != (col_height - 1) && i % row_length != 0){
+		int i2 = i - 1 + row_length;
+		const Vector2f point2(((i2%row_length)-map_width_left/map_res)*map_res + map_res/2, (map_height_top/map_res - (i2/row_length))*map_res - map_res/2);
+		if(checkObstacle(point1,point2)){
+			addEdge(graph, i, i2);
+			//DrawLine(point1,point2, 0x77fc03,local_viz_msg_);
+		}
+	}
+
+	//below and right
+	if((i % row_length != row_length - 1)&&(i/row_length) != (col_height - 1)){
+		int i2 = i + 1 + row_length;
+		const Vector2f point2(((i2%row_length)-map_width_left/map_res)*map_res + map_res/2, (map_height_top/map_res - (i2/row_length))*map_res - map_res/2);
+		if(checkObstacle(point1,point2)){
+			addEdge(graph, i, i2);
+			//DrawLine(point1,point2, 0x77fc03,local_viz_msg_);
+		}
+	}	
+	
+}
+
 void BFS(){
 
 	int row_length = (map_width_left + map_width_right )/map_res;
@@ -219,91 +281,48 @@ void BFS(){
 	vector<int> graph[size];
 	map_.Load( "maps/GDC2.txt");
 	//create graph 
+/*
 	for(int i = 0; i < size; i++){
-		const Vector2f point1(((i%row_length)-map_width_left/map_res)*map_res + map_res/2, (map_height_top/map_res - (i/row_length))*map_res - map_res/2);
-		//above 
-		if(i >= row_length){
-			int i2 = i - row_length;
-			const Vector2f point2(((i2%row_length)-map_width_left/map_res)*map_res + map_res/2, (map_height_top/map_res - (i2/row_length))*map_res - map_res/2);
-			if(checkObstacle(point1,point2)){
-				addEdge(graph, i, i2);
-				//DrawLine(point1,point2, 0x77fc03,local_viz_msg_);
-			}
-		}
-		//below
-		if((i/row_length) != (col_height - 1)){
-			int i2 = i + row_length;
-			const Vector2f point2(((i2%row_length)-map_width_left/map_res)*map_res + map_res/2, (map_height_top/map_res - (i2/row_length))*map_res - map_res/2);
-			if(checkObstacle(point1,point2)){
-				addEdge(graph, i, i2);
-				//DrawLine(point1,point2, 0x77fc03,local_viz_msg_);
-			}
-		}
-			
-		//left of
-		if(i % row_length != 0){
-			int i2 = i - 1;
-			const Vector2f point2(((i2%row_length)-map_width_left/map_res)*map_res + map_res/2, (map_height_top/map_res - (i2/row_length))*map_res - map_res/2);
-			if(checkObstacle(point1,point2)){
-				addEdge(graph, i, i2);
-				//DrawLine(point1,point2, 0x77fc03,local_viz_msg_);
-			}
-		}
-		//right of 
-		if((i % row_length != row_length - 1)){
-			int i2 = i + 1;
-			const Vector2f point2(((i2%row_length)-map_width_left/map_res)*map_res + map_res/2, (map_height_top/map_res - (i2/row_length))*map_res - map_res/2);
-			if(checkObstacle(point1,point2)){
-				addEdge(graph, i, i2);
-				//DrawLine(point1,point2, 0x77fc03,local_viz_msg_);
-			}
-		}
-		
-		//left and above
-		if(i >= row_length && i % row_length != 0){
-			int i2 = i - 1 - row_length;
-			const Vector2f point2(((i2%row_length)-map_width_left/map_res)*map_res + map_res/2, (map_height_top/map_res - (i2/row_length))*map_res - map_res/2);
-			if(checkObstacle(point1,point2)){
-				addEdge(graph, i, i2);
-				//DrawLine(point1,point2, 0x77fc03,local_viz_msg_);
-			}
-		}
-		//above and right
-		if((i % row_length != row_length - 1)&&(i >= row_length)){
-			int i2 = i + 1 - row_length;
-			const Vector2f point2(((i2%row_length)-map_width_left/map_res)*map_res + map_res/2, (map_height_top/map_res - (i2/row_length))*map_res - map_res/2);
-			if(checkObstacle(point1,point2)){
-				addEdge(graph, i, i2);
-				//DrawLine(point1,point2, 0x77fc03,local_viz_msg_);
-			}
-		}	
-		
-	}
+		generateNeighbors(graph, i );
+	} */
 
+	//queue<int> frontier;
+	
+	map<int, float> queueOrder = {{start_index, map_res}}; //node # and proximity
 
-
-	map<int, float> queueOrder = {{start_index, hueristic(start_index)}}; //node # and proximity
-	ROS_INFO("proximity = %f", hueristic(start_index));
 
 	came_from[start_index] = -1;
-	cost_so_far[start_index] = 0;
+	cost_so_far[start_index] = map_res;
 	while(!queueOrder.empty()){
 
 		
 		int current_node = minimumNode(queueOrder);
+		ROS_INFO("node # %i has cost %f",current_node,queueOrder[current_node]);
+		//ROS_INFO("cost_so_far = %f", cost_so_far[current_node]);
 		queueOrder.erase(current_node);
-		
+		generateNeighbors(graph,current_node);
+
 		if(current_node == nav_index){
 			break;
 		}
-		//ROS_INFO("current node = %i",current_node);
+
 		for (int i : graph[current_node]){
-			if(came_from.find(i) == came_from.end()){
-				float cost = hueristic(i) + map_res + cost_so_far[current_node];
-				queueOrder.insert(std::pair<int,float>(i,cost));
+			float priority = 0;
+			float cost = 0;
+			if((abs(i - current_node) == 1) or (abs(i - current_node) == row_length)){
+				priority  = hueristic(i)+ map_res + cost_so_far[current_node];
+				cost = map_res + cost_so_far[current_node];
+			} else {
+				priority = hueristic(i)+ map_res*sqrt(2) + cost_so_far[current_node];
+				cost = map_res*sqrt(2) + cost_so_far[current_node];
+			}
+			if((came_from.find(i) == came_from.end()) or (cost < cost_so_far[i])){
+
+				queueOrder.insert(std::pair<int,float>(i,priority));
 				came_from[i] = current_node;
 				cost_so_far[i] = cost;
 				plotCameFrom(i,current_node, 0x77fc03);
+				//ROS_INFO("node # %i has cost %f",i,cost);
 			}
 		}
 		
@@ -312,7 +331,7 @@ void BFS(){
 }
 
 void Navigation::UpdateTruePose(const Eigen::Vector2f& loc, float angle) {
-	if(loc != actualLocation){
+	if(loc != actualLocation && init_complete){
 		actualLocation = loc;
 		actualAngle = angle;
 		start_x = round((actualLocation.x() +map_width_left  - map_res/2) / map_res);
@@ -324,14 +343,12 @@ void Navigation::UpdateTruePose(const Eigen::Vector2f& loc, float angle) {
 		came_from.clear();
 		cost_so_far.clear();
 		ClearVisualizationMsg(local_viz_msg_);
-		ROS_INFO("helo");
+
 		BFS();
-
+	} else { 
+		actualLocation = loc;
+		actualAngle = angle;
 	}
-	
-
-	
-
 }
 
 void Navigation::SetNavGoal(const Vector2f& loc, float angle) {
@@ -348,10 +365,12 @@ void Navigation::SetNavGoal(const Vector2f& loc, float angle) {
 	DrawCross(quantLoc, .1, 0xFFFF00,local_viz_msg_);
 
 	int i = nav_index;
-	while(came_from[i] != -1){
+	if(came_from.find(i) != came_from.end()){
+		while(came_from[i] != -1){
 
-		plotCameFrom(i, came_from[i], 0x000000);
-		i = came_from[i];
+			plotCameFrom(i, came_from[i], 0x000000);
+			i = came_from[i];
+		}
 	}
 }
 
@@ -1052,7 +1071,9 @@ void Navigation::Run() {
 		//const Vector2f startLocation(actualLocation.x(),actualLocation.y());
 		ROS_INFO("initializing starting odometry");
 		//ClearVisualizationMsg(local_viz_msg_);
-    } 
+    } else if(runCount == 8){
+		init_complete = true;
+	}
 	drive_msg_.curvature = 0;
 	drive_msg_.velocity = 0;
 	
