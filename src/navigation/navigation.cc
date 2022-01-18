@@ -96,10 +96,12 @@ Navigation::Navigation(const string& map_file, ros::NodeHandle* n) :
     
 }
 
-
+bool bfs_complete = false;
 bool init_complete = false;
 float goalAngle = 0;
+static Vector2f target_vector(0,0);
 static Vector2f goalLocation(0,0);
+int target_node = 0;
 //vector_map::VectorMap map_;
 vector_map::VectorMap map_ = vector_map::VectorMap("maps/GDC2.txt");
 
@@ -144,27 +146,41 @@ float nav_x = 0;
 float nav_y = 0;
 int nav_index = 0;
 
+Vector2f node2Vector(int node){
+	const Vector2f point(((node%row_length)-map_width_left/map_res)*map_res + map_res/2, (map_height_top/map_res - (node/row_length))*map_res - map_res/2);
+	return point;
+}
+
 void addEdge(vector<int> graph[], int u, int v){
 	graph[u].push_back(v);
 	graph[v].push_back(u);
 	return;
 }
 
+float buff = .25;
 bool checkObstacle(const Vector2f& vect1, const Vector2f& vect2){
 
 	line2f rayLine(vect1.x(),vect1.y(), vect2.x(),vect2.y());
+	line2f boxLineL(vect2.x() - buff,vect2.y() - buff, vect2.x() - buff,vect2.y() + buff);
+	line2f boxLineR(vect2.x() + buff,vect2.y() - buff, vect2.x() + buff,vect2.y() + buff);
+	line2f boxLineU(vect2.x() - buff,vect2.y() + buff, vect2.x() + buff,vect2.y() + buff);
+	line2f boxLineD(vect2.x() - buff,vect2.y() - buff, vect2.x() + buff,vect2.y() - buff);
+	vector <line2f> lines = {rayLine, boxLineL, boxLineR, boxLineU, boxLineD};
 	
-	for (size_t i = 0; i < map_.lines.size(); ++i) {
-		const line2f map_line = map_.lines[i];
-		bool intersects = map_line.Intersects(rayLine);
+	for (const auto& line : lines){
+		for (size_t i = 0; i < map_.lines.size(); ++i) {
+			const line2f map_line = map_.lines[i];
+			bool intersects = map_line.Intersects(line);
 
-		Vector2f intersection_point; 
-		intersects = map_line.Intersection(rayLine, &intersection_point);
+			Vector2f intersection_point; 
+			intersects = map_line.Intersection(line, &intersection_point);
 
-		if (intersects) {
-			return false;
-		} 
+			if (intersects) {
+				return false;
+			} 
+		}
 	}
+	
 	return true;
 }
 
@@ -280,13 +296,7 @@ void BFS(){
 	
 	vector<int> graph[size];
 	map_.Load( "maps/GDC2.txt");
-	//create graph 
-/*
-	for(int i = 0; i < size; i++){
-		generateNeighbors(graph, i );
-	} */
 
-	//queue<int> frontier;
 	
 	map<int, float> queueOrder = {{start_index, map_res}}; //node # and proximity
 
@@ -310,10 +320,10 @@ void BFS(){
 			float priority = 0;
 			float cost = 0;
 			if((abs(i - current_node) == 1) or (abs(i - current_node) == row_length)){
-				priority  = hueristic(i)+ map_res + cost_so_far[current_node];
+				priority  = hueristic(i) * .3+ map_res + cost_so_far[current_node];
 				cost = map_res + cost_so_far[current_node];
 			} else {
-				priority = hueristic(i)+ map_res*sqrt(2) + cost_so_far[current_node];
+				priority = hueristic(i) * .3+ map_res*sqrt(2) + cost_so_far[current_node];
 				cost = map_res*sqrt(2) + cost_so_far[current_node];
 			}
 			if((came_from.find(i) == came_from.end()) or (cost < cost_so_far[i])){
@@ -322,7 +332,6 @@ void BFS(){
 				came_from[i] = current_node;
 				cost_so_far[i] = cost;
 				plotCameFrom(i,current_node, 0x77fc03);
-				//ROS_INFO("node # %i has cost %f",i,cost);
 			}
 		}
 		
@@ -331,12 +340,13 @@ void BFS(){
 }
 
 void Navigation::UpdateTruePose(const Eigen::Vector2f& loc, float angle) {
-	if(loc != actualLocation && init_complete){
+	if(loc != actualLocation && init_complete && !bfs_complete){
 		actualLocation = loc;
 		actualAngle = angle;
 		start_x = round((actualLocation.x() +map_width_left  - map_res/2) / map_res);
 		start_y = round((map_height_top - actualLocation.y() + map_res/2)/ map_res ) -1;
 		start_index = start_y * row_length + start_x;
+		target_node = start_index;
 		//const Vector2f quantLoc(start_x*map_res - map_width_left+map_res/2,map_height_top - start_y*map_res  - map_res/2 );
 		const Vector2f quantLoc((start_index % row_length)*map_res - map_width_left+map_res/2,map_height_top - (start_index / row_length)*map_res - map_res/2);
 		DrawCross(quantLoc, .1, 0xFF00FF,local_viz_msg_);
@@ -345,6 +355,7 @@ void Navigation::UpdateTruePose(const Eigen::Vector2f& loc, float angle) {
 		ClearVisualizationMsg(local_viz_msg_);
 
 		BFS();
+		bfs_complete = true;
 	} else { 
 		actualLocation = loc;
 		actualAngle = angle;
@@ -373,6 +384,8 @@ void Navigation::SetNavGoal(const Vector2f& loc, float angle) {
 		}
 	}
 }
+//MORE CALLBACKS ----------------------------------------------------------------------------------
+
 
 void Navigation::UpdateLocation(const Eigen::Vector2f& loc, float angle) {
 
@@ -672,7 +685,7 @@ float * ShortestPathOD(float curve,bool plot, int color){
 		float minPointRad = r; //the radius at which this shortest path occured
 		float min_angle_offset = asin(vl/r);//offset for shortest path (for plotting)
 		
-		const Vector2f refGoal(goalLocation.x() - actualLocation.x(),goalLocation.y()-actualLocation.y());
+		const Vector2f refGoal(target_vector.x() - actualLocation.x(),target_vector.y()-actualLocation.y());
 		const Vector2f turnedRefGoal(refGoal.y()*sin(actualAngle)+refGoal.x()*cos(actualAngle),-refGoal.x()*sin(actualAngle)+refGoal.y()*cos(actualAngle));
 		//float goalAngle = getScanAngle(turnedRefGoal,r);		
 
@@ -968,10 +981,10 @@ float * score(){
 	//ROS_INFO("goalLocation: %f x %f y",goalLocation.x(),goalLocation.y());
 	//ROS_INFO("endPoint Loc: %f x %f y",FPL_cloud.at(maxIndex).x(),FPL_cloud.at(maxIndex).y());
 	//ROS_INFO("endPoint Loc: %f x %f y",actualLocation.x(),actualLocation.y());
-
+	if(-1==1){
 	ROS_INFO("score: %f", score[maxIndex]);
 	ROS_INFO("A*FPL: %f B*clear: %f, C*gd: %f", FPLs[maxIndex]*A, clearances[maxIndex]*B, goalDists[maxIndex]*C);
-	
+	}
 	//for graphing
 	//DrawPoint(FPL_cloud.at(maxIndex),0x000000, local_viz_msg_);
 	float *odVars;
@@ -1040,10 +1053,7 @@ float * refine( float roughCurve){
 	}
 	int maxIndex = getMaxIndex(score1,size);
 	
-	//ROS_INFO("goalLocation: %f x %f y",goalLocation.x(),goalLocation.y());
-	//ROS_INFO("endPoint Loc: %f x %f y",FPL_cloud.at(maxIndex).x(),FPL_cloud.at(maxIndex).y());
-	//ROS_INFO("endPoint Loc: %f x %f y",actualLocation.x(),actualLocation.y());
-	ROS_INFO("clearance = %f",clearances1[maxIndex]);
+	//ROS_INFO("clearance = %f",clearances1[maxIndex]);
 	if(-1==1){
 	ROS_INFO("refined score: %f", score1[maxIndex]);
 	ROS_INFO("refined: A*FPL: %f B*clear: %f, C*gd: %f", A*FPLs1[maxIndex], clearances1[maxIndex]*B, goalDists1[maxIndex]*C);
@@ -1058,11 +1068,62 @@ float * refine( float roughCurve){
 }
 
 //MAIN -------------------------------------------------------------------------------------------------
-void Navigation::Run() {
-		
-	//gather speed information
-	//float velMag = mag(robot_vel_);
+float targetSize = .25; //meters
+float carrotRad = 3;// meters
 
+
+
+
+int nextNode(int node){
+	
+	for(auto const& x : came_from){
+		if(x.second == node){
+			return x.first;
+		}
+	}
+	return -2;
+}
+
+void carrotNavigator(){
+
+	target_vector = node2Vector(target_node);
+
+	if(dist(actualLocation,target_vector) < carrotRad){
+		target_node = nextNode(target_node);
+		ROS_INFO("target_node = %i", target_node);
+	}
+
+	return;
+}
+void graphEdge(int node1, int node2){
+	static Vector2f vect1 = node2Vector(node1);
+	static Vector2f vect2 = node2Vector(node2);
+	DrawLine(vect1,vect2, 0x77fc03,local_viz_msg_);
+	return;
+}
+
+void graphNavPath(){
+	int i = nav_index;
+	if(came_from.find(i) != came_from.end()){
+		while(came_from[i] != -1){
+			plotCameFrom(i, came_from[i], 0x000000);
+			i = came_from[i];
+		}
+	}
+}
+
+void Navigation::Run() {
+	ClearVisualizationMsg(local_viz_msg_);
+	graphNavPath();
+	//gather speed information
+	float velMag = mag(robot_vel_);
+	DrawArc(actualLocation, carrotRad, 0, 2*M_PI, 0xF06060,local_viz_msg_);
+
+	DrawCross(target_vector, .1,  0xFF0000, local_viz_msg_);
+	//ROS_INFO("target_vector x = %f target_vector y = %f", target_vector.x(), target_vector.y());
+	drive_msg_.curvature = 0;
+	drive_msg_.velocity = 0;
+	
 	//initialize 
     if (runCount < 8){
 		startOdomY = robot_loc_.y();
@@ -1073,11 +1134,13 @@ void Navigation::Run() {
 		//ClearVisualizationMsg(local_viz_msg_);
     } else if(runCount == 8){
 		init_complete = true;
-	}
-	drive_msg_.curvature = 0;
-	drive_msg_.velocity = 0;
+		carrotNavigator();
+	} 
+
 	
 	
+	
+
      //find longest free path for given curvature
 	 /*
 	float *odVars1;
@@ -1085,15 +1148,15 @@ void Navigation::Run() {
 	TOC(*(odVars1),velMag);
 	*/
 	
-	//if((goalLocation.x() != 0)&&(goalLocation.y() != 0)){
+	if((goalLocation.x() != 0)&&(goalLocation.y() != 0)){
 		
-		/*
+		
 		float *scoreVars;
-		float *scoreVars2;
+		//float *scoreVars2;
 		scoreVars = score();
-		scoreVars2 = refine(*(scoreVars+1));
-		drive_msg_.curvature = *(scoreVars2+1);
-		TOC(*(scoreVars2),velMag);*/
+		//scoreVars2 = refine(*(scoreVars+1));
+		drive_msg_.curvature = *(scoreVars+1);
+		TOC(*(scoreVars),velMag);
 		//green is refined path
 		
 		
@@ -1106,7 +1169,7 @@ void Navigation::Run() {
 		TOC(*(odDrive),velMag);
 		ROS_INFO("FPL: %f, clearance: %f",FPL, clearance);
 		*/
-	//}
+	}
 	
 
 
@@ -1130,11 +1193,11 @@ void Navigation::Run() {
 
 	//plot the bot
 	
-	//plotCar(0x0000ff,0xff0000);
+	plotCar(0x0000ff,0xff0000);
 	//DrawCross(nav_goal_loc_, .1, 0xFF00FF,local_viz_msg_);
 	viz_pub_.publish(local_viz_msg_);
 	drive_pub_.publish(drive_msg_);
-	//ClearVisualizationMsg(local_viz_msg_);
+
 
 }  // namespace navigation
 
